@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Força de marcas e fabricantes</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        .menu {
+            margin-bottom: 25px;
+        }
+
+        .menu a {
+            background: #222;
+            color: white;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 8px;
+        }
+
+        .contador {
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 11px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #222;
+            color: white;
+        }
+
+        .score-alto {
+            color: green;
+            font-weight: bold;
+        }
+
+        .score-medio {
+            color: #b8860b;
+            font-weight: bold;
+        }
+
+        .score-baixo {
+            color: red;
+            font-weight: bold;
+        }
+
+        .aviso {
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 25px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Força de marcas e fabricantes</h1>
+    <p class="subtitulo">
+        Análise inicial por marca usando última coleta de cada produto monitorado.
+    </p>
+
+    <div class="menu">
+        <a href="/">Dashboard</a>
+        <a href="/ranking/">Ranking de mercado</a>
+        <a href="/marcas/">Força de marcas</a>
+        <a href="/precos/">Preço médio</a>
+        <a href="/produtos/">Produtos monitorados</a>
+        <a href="/referencias/">Produtos referência</a>
+        <a href="/admin/">Painel Admin</a>
+    </div>
+
+    <div class="aviso">
+        O score abaixo é inicial. Ele combina presença da marca, disponibilidade, nota média,
+        avaliações, ranking e vínculo com produto referência. Será refinado quando houver mais
+        sites e mais dias de coleta.
+    </div>
+
+    <p class="contador">
+        Total de marcas analisadas: {{ total_marcas }}
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Posição</th>
+                <th>Marca</th>
+                <th>Fabricante / Importador</th>
+                <th>Produtos monitorados</th>
+                <th>Produtos vinculados</th>
+                <th>Disponíveis</th>
+                <th>Preço médio</th>
+                <th>Nota média</th>
+                <th>Total avaliações</th>
+                <th>Ranking médio</th>
+                <th>Score força</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for marca in marcas %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ marca.marca }}</td>
+                    <td>{{ marca.fabricante }}</td>
+                    <td>{{ marca.qtd_produtos }}</td>
+                    <td>{{ marca.qtd_vinculados }}</td>
+                    <td>{{ marca.qtd_disponiveis }}</td>
+
+                    <td>
+                        {% if marca.preco_medio %}
+                            R$ {{ marca.preco_medio|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if marca.nota_media %}
+                            {{ marca.nota_media|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td>{{ marca.total_avaliacoes }}</td>
+
+                    <td>
+                        {% if marca.ranking_medio %}
+                            {{ marca.ranking_medio|floatformat:1 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if marca.score >= 70 %}
+                            <span class="score-alto">{{ marca.score }}</span>
+                        {% elif marca.score >= 40 %}
+                            <span class="score-medio">{{ marca.score }}</span>
+                        {% else %}
+                            <span class="score-baixo">{{ marca.score }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="11">Ainda não existem dados suficientes para análise de marcas.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>

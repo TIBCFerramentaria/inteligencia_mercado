@@ -1,0 +1,28 @@
+# Ambiente virtual
+.venv/
+
+# Banco local de desenvolvimento
+db.sqlite3
+
+# Arquivos Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django
+*.log
+local_settings.py
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+
+# Arquivos temporários
+*.tmp
+*.bak
+
+# Excel exportado
+*.xlsx
+*.csv

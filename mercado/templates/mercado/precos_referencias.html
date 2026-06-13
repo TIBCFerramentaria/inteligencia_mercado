@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Preço médio por produto referência</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        .menu {
+            margin-bottom: 25px;
+        }
+
+        .menu a {
+            background: #222;
+            color: white;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 8px;
+        }
+
+        .filtros {
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .filtros form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .campo {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 13px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input, select {
+            padding: 8px;
+            min-width: 180px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            background: #222;
+            color: white;
+            padding: 9px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 11px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #222;
+            color: white;
+        }
+
+        .contador {
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .preco-medio {
+            font-weight: bold;
+            color: #0056b3;
+        }
+
+        .variacao-baixa {
+            color: green;
+            font-weight: bold;
+        }
+
+        .variacao-media {
+            color: #b8860b;
+            font-weight: bold;
+        }
+
+        .variacao-alta {
+            color: red;
+            font-weight: bold;
+        }
+
+        .aviso {
+            background: #e7f3ff;
+            border: 1px solid #b6dcff;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 25px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Preço médio por produto referência</h1>
+    <p class="subtitulo">
+        Análise de menor preço, preço médio e maior preço por produto validado em fonte oficial.
+    </p>
+
+    <div class="menu">
+        <a href="/">Dashboard</a>
+        <a href="/ranking/">Ranking de mercado</a>
+        <a href="/marcas/">Força de marcas</a>
+        <a href="/precos/">Preço médio</a>
+        <a href="/produtos/">Produtos monitorados</a>
+        <a href="/referencias/">Produtos referência</a>
+        <a href="/admin/">Painel Admin</a>
+    </div>
+
+    <div class="aviso">
+        Esta análise considera apenas produtos coletados que estejam vinculados a um Produto Referência.
+        Isso evita comparar itens parecidos, mas tecnicamente diferentes.
+    </div>
+
+    <div class="filtros">
+        <form method="get">
+            <div class="campo">
+                <label>Buscar produto, código ou EAN</label>
+                <input type="text" name="busca" value="{{ busca }}" placeholder="Ex: Bosch, GSB13RE, EAN...">
+            </div>
+
+            <div class="campo">
+                <label>Site</label>
+                <select name="site">
+                    <option value="">Todos</option>
+                    {% for site in sites %}
+                        <option value="{{ site.id }}" {% if site_id == site.id|stringformat:"s" %}selected{% endif %}>
+                            {{ site.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Marca</label>
+                <select name="marca">
+                    <option value="">Todas</option>
+                    {% for marca in marcas %}
+                        <option value="{{ marca.id }}" {% if marca_id == marca.id|stringformat:"s" %}selected{% endif %}>
+                            {{ marca.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="">Todas</option>
+                    {% for categoria in categorias %}
+                        <option value="{{ categoria.id }}" {% if categoria_id == categoria.id|stringformat:"s" %}selected{% endif %}>
+                            {{ categoria.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Data início</label>
+                <input type="date" name="data_inicio" value="{{ data_inicio }}">
+            </div>
+
+            <div class="campo">
+                <label>Data fim</label>
+                <input type="date" name="data_fim" value="{{ data_fim }}">
+            </div>
+
+            <button type="submit">Filtrar</button>
+        </form>
+    </div>
+
+    <p class="contador">
+        Total de produtos referência analisados: {{ total_resultados }}
+    </p>
+    <p>
+        <a href="/precos/exportar/?{{ query_string }}" style="background:#0056b3; color:white; padding:10px 14px; text-decoration:none; border-radius:5px;">
+         Exportar Excel
+        </a>
+    </p>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Produto referência</th>
+                <th>Marca</th>
+                <th>Fabricante / Importador</th>
+                <th>Categoria</th>
+                <th>Sites</th>
+                <th>Coletas</th>
+                <th>Menor preço</th>
+                <th>Site menor preço</th>
+                <th>Preço médio</th>
+                <th>Maior preço</th>
+                <th>Site maior preço</th>
+                <th>Variação</th>
+                <th>Última coleta</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in resultados %}
+                <tr>
+                    <td>{{ item.referencia.nome_referencia }}</td>
+                    <td>{{ item.marca }}</td>
+                    <td>{{ item.fabricante }}</td>
+                    <td>{{ item.categoria }}</td>
+                    <td>{{ item.sites_texto }}</td>
+                    <td>{{ item.qtd_coletas }}</td>
+
+                    <td>R$ {{ item.menor_preco|floatformat:2 }}</td>
+                    <td>{{ item.site_menor_preco }}</td>
+
+                    <td class="preco-medio">
+                        R$ {{ item.preco_medio|floatformat:2 }}
+                    </td>
+
+                    <td>R$ {{ item.maior_preco|floatformat:2 }}</td>
+                    <td>{{ item.site_maior_preco }}</td>
+
+                    <td>
+                        {% if item.variacao_percentual <= 10 %}
+                            <span class="variacao-baixa">{{ item.variacao_percentual|floatformat:2 }}%</span>
+                        {% elif item.variacao_percentual <= 25 %}
+                            <span class="variacao-media">{{ item.variacao_percentual|floatformat:2 }}%</span>
+                        {% else %}
+                            <span class="variacao-alta">{{ item.variacao_percentual|floatformat:2 }}%</span>
+                        {% endif %}
+                    </td>
+
+                    <td>{{ item.ultima_coleta|date:"d/m/Y H:i" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="13">
+                        Nenhum produto referência com preço encontrado para os filtros selecionados.
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>

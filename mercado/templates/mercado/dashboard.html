@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Inteligência de Mercado</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .cards {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            min-width: 180px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .card h2 {
+            margin: 0;
+            font-size: 28px;
+        }
+
+        .card p {
+            margin: 6px 0 0;
+            color: #555;
+        }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background: #222;
+            color: white;
+        }
+
+        .menu {
+            margin-bottom: 25px;
+        }
+
+        .menu a {
+            background: #222;
+            color: white;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 8px;
+        }
+
+        .aviso {
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 25px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Inteligência de Mercado</h1>
+    <p class="subtitulo">Dashboard inicial de monitoramento de produtos, marcas, preços e rankings.</p>
+
+    <div class="menu">
+        <a href="/">Dashboard</a>
+        <a href="/ranking/">Ranking de mercado</a>
+        <a href="/marcas/">Força de marcas</a>
+        <a href="/precos/">Preço médio</a>
+        <a href="/produtos/">Produtos monitorados</a>
+        <a href="/referencias/">Produtos referência</a>
+        <a href="/admin/">Painel Admin</a>
+    </div>
+
+    <div class="aviso">
+        Esta é a primeira versão do dashboard. Os dados ainda serão alimentados manualmente ou por coletores automáticos nas próximas etapas.
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <h2>{{ total_sites }}</h2>
+            <p>Sites monitorados</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_categorias }}</h2>
+            <p>Categorias</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_marcas }}</h2>
+            <p>Marcas</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_fabricantes }}</h2>
+            <p>Fabricantes / Importadores</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_referencias }}</h2>
+            <p>Produtos referência</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_produtos }}</h2>
+            <p>Produtos coletados</p>
+        </div>
+
+        <div class="card">
+            <h2>{{ total_coletas }}</h2>
+            <p>Coletas realizadas</p>
+        </div>
+
+    </div>
+
+    <h2>Últimas coletas</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Site</th>
+                <th>Produto</th>
+                <th>Marca</th>
+                <th>Categoria</th>
+                <th>Preço</th>
+                <th>Avaliações</th>
+                <th>Ranking</th>
+                <th>Disponível</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for coleta in ultimas_coletas %}
+                <tr>
+                    <td>{{ coleta.data_coleta|date:"d/m/Y H:i" }}</td>
+                    <td>{{ coleta.produto.site.nome }}</td>
+                    <td>{{ coleta.produto.nome_original }}</td>
+                    <td>{{ coleta.produto.marca|default:"-" }}</td>
+                    <td>{{ coleta.produto.categoria|default:"-" }}</td>
+                    <td>
+                        {% if coleta.preco_atual %}
+                            R$ {{ coleta.preco_atual }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ coleta.quantidade_avaliacoes|default:"-" }}</td>
+                    <td>{{ coleta.ranking_geral|default:"-" }}</td>
+                    <td>
+                        {% if coleta.disponivel %}
+                            Sim
+                        {% else %}
+                            Não
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="9">Ainda não existem coletas cadastradas.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>

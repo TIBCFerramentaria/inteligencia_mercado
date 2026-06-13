@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Produtos referência</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        .menu {
+            margin-bottom: 25px;
+        }
+
+        .menu a {
+            background: #222;
+            color: white;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 8px;
+        }
+
+        .filtros {
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .filtros form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .campo {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 13px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input, select {
+            padding: 8px;
+            min-width: 180px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            background: #222;
+            color: white;
+            padding: 9px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #222;
+            color: white;
+        }
+
+        .contador {
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        a.link-produto {
+            color: #0056b3;
+            text-decoration: none;
+        }
+
+        a.link-produto:hover {
+            text-decoration: underline;
+        }
+
+        .status-validado {
+            color: green;
+            font-weight: bold;
+        }
+
+        .status-pendente {
+            color: #b8860b;
+            font-weight: bold;
+        }
+
+        .status-divergente {
+            color: red;
+            font-weight: bold;
+        }
+
+        .status-sem {
+            color: #666;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Produtos referência</h1>
+    <p class="subtitulo">
+        Produtos validados em fonte oficial: fabricante, importador, catálogo, manual ou embalagem.
+    </p>
+
+    <div class="menu">
+        <a href="/">Dashboard</a>
+        <a href="/ranking/">Ranking de mercado</a>
+        <a href="/marcas/">Força de marcas</a>
+        <a href="/precos/">Preço médio</a>
+        <a href="/produtos/">Produtos monitorados</a>
+        <a href="/referencias/">Produtos referência</a>
+        <a href="/admin/">Painel Admin</a>
+    </div>
+
+    <div class="filtros">
+        <form method="get">
+            <div class="campo">
+                <label>Buscar produto, código, EAN ou URL oficial</label>
+                <input type="text" name="busca" value="{{ busca }}" placeholder="Ex: GSB13RE, Bosch, EAN...">
+            </div>
+
+            <div class="campo">
+                <label>Marca</label>
+                <select name="marca">
+                    <option value="">Todas</option>
+                    {% for marca in marcas %}
+                        <option value="{{ marca.id }}" {% if marca_id == marca.id|stringformat:"s" %}selected{% endif %}>
+                            {{ marca.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Fabricante / Importador</label>
+                <select name="fabricante">
+                    <option value="">Todos</option>
+                    {% for fabricante in fabricantes %}
+                        <option value="{{ fabricante.id }}" {% if fabricante_id == fabricante.id|stringformat:"s" %}selected{% endif %}>
+                            {{ fabricante.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="">Todas</option>
+                    {% for categoria in categorias %}
+                        <option value="{{ categoria.id }}" {% if categoria_id == categoria.id|stringformat:"s" %}selected{% endif %}>
+                            {{ categoria.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo">
+                <label>Status validação</label>
+                <select name="status_validacao">
+                    <option value="">Todos</option>
+                    {% for valor, texto in status_choices %}
+                        <option value="{{ valor }}" {% if status_validacao == valor %}selected{% endif %}>
+                            {{ texto }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit">Filtrar</button>
+        </form>
+    </div>
+
+    <p class="contador">
+        Total encontrado: {{ referencias.count }} produto(s) referência
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Produto referência</th>
+                <th>Marca</th>
+                <th>Fabricante / Importador</th>
+                <th>Categoria</th>
+                <th>Código fabricante</th>
+                <th>EAN</th>
+                <th>Fonte</th>
+                <th>Status</th>
+                <th>Atualizado em</th>
+                <th>URL oficial</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for referencia in referencias %}
+                <tr>
+                    <td>{{ referencia.nome_referencia }}</td>
+                    <td>{{ referencia.marca|default:"-" }}</td>
+                    <td>{{ referencia.fabricante_importador|default:"-" }}</td>
+                    <td>{{ referencia.categoria|default:"-" }}</td>
+                    <td>{{ referencia.codigo_fabricante|default:"-" }}</td>
+                    <td>{{ referencia.ean|default:"-" }}</td>
+                    <td>{{ referencia.get_fonte_validacao_display }}</td>
+                    <td>
+                        {% if referencia.status_validacao == "VALIDADO" %}
+                            <span class="status-validado">{{ referencia.get_status_validacao_display }}</span>
+                        {% elif referencia.status_validacao == "PENDENTE" %}
+                            <span class="status-pendente">{{ referencia.get_status_validacao_display }}</span>
+                        {% elif referencia.status_validacao == "DIVERGENTE" %}
+                            <span class="status-divergente">{{ referencia.get_status_validacao_display }}</span>
+                        {% else %}
+                            <span class="status-sem">{{ referencia.get_status_validacao_display }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ referencia.atualizado_em|date:"d/m/Y H:i" }}</td>
+                    <td>
+                        {% if referencia.url_oficial %}
+                            <a class="link-produto" href="{{ referencia.url_oficial }}" target="_blank">
+                                Abrir
+                            </a>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="10">Nenhum produto referência encontrado.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
