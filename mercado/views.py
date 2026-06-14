@@ -1,7 +1,9 @@
+from difflib import SequenceMatcher
+from django.contrib import messages
 from django.db.models import Q
 from django.http import HttpResponse
-from django.shortcuts import render
-from openpyxl import Workbook
+from django.shortcuts import get_object_or_404, redirect, render
+from openpyxl import Workbook, load_workbook
 from .models import (
     SiteMonitorado,
     Categoria,
@@ -776,3 +778,425 @@ def exportar_ranking_excel(request):
 
     workbook.save(response)
     return response
+
+def produtos_pendentes_validacao(request):
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+        "produto_referencia",
+    ).filter(
+        Q(produto_referencia__isnull=True)
+        | Q(status_vinculo="PENDENTE")
+        | Q(status_vinculo="DIVERGENTE")
+        | Q(status_vinculo="SEM_REFERENCIA")
+    )
+
+    busca = request.GET.get("busca", "")
+    site_id = request.GET.get("site", "")
+    marca_id = request.GET.get("marca", "")
+    categoria_id = request.GET.get("categoria", "")
+    status_vinculo = request.GET.get("status_vinculo", "")
+
+    if busca:
+        produtos = produtos.filter(
+            Q(nome_original__icontains=busca)
+            | Q(codigo_site__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+            | Q(url__icontains=busca)
+        )
+
+    if site_id:
+        produtos = produtos.filter(site_id=site_id)
+
+    if marca_id:
+        produtos = produtos.filter(marca_id=marca_id)
+
+    if categoria_id:
+        produtos = produtos.filter(categoria_id=categoria_id)
+
+    if status_vinculo:
+        produtos = produtos.filter(status_vinculo=status_vinculo)
+
+    produtos = produtos.order_by("site__nome", "marca__nome", "nome_original")
+
+    contexto = {
+        "produtos": produtos.distinct(),
+        "total_produtos": produtos.distinct().count(),
+        "sites": SiteMonitorado.objects.all(),
+        "marcas": Marca.objects.all(),
+        "categorias": Categoria.objects.all(),
+        "status_choices": ProdutoColetado.STATUS_VINCULO_CHOICES,
+        "busca": busca,
+        "site_id": site_id,
+        "marca_id": marca_id,
+        "categoria_id": categoria_id,
+        "status_vinculo": status_vinculo,
+    }
+
+    return render(request, "mercado/produtos_pendentes_validacao.html", contexto)
+
+def importar_referencias_excel(request):
+    if request.method == "POST":
+        arquivo = request.FILES.get("arquivo_excel")
+
+        if not arquivo:
+            messages.error(request, "Nenhum arquivo foi enviado.")
+            return redirect("mercado:importar_referencias_excel")
+
+        if not arquivo.name.endswith(".xlsx"):
+            messages.error(request, "Envie um arquivo Excel no formato .xlsx.")
+            return redirect("mercado:importar_referencias_excel")
+
+        try:
+            workbook = load_workbook(arquivo, data_only=True)
+            sheet = workbook.active
+
+            cabecalhos = []
+            for celula in sheet[1]:
+                cabecalhos.append(str(celula.value).strip() if celula.value else "")
+
+            mapa_colunas = {
+                nome_coluna: indice
+                for indice, nome_coluna in enumerate(cabecalhos)
+            }
+
+            colunas_obrigatorias = [
+                "nome_referencia",
+                "marca",
+                "categoria",
+            ]
+
+            for coluna in colunas_obrigatorias:
+                if coluna not in mapa_colunas:
+                    messages.error(
+                        request,
+                        f"Coluna obrigatória ausente no Excel: {coluna}"
+                    )
+                    return redirect("mercado:importar_referencias_excel")
+
+            total_linhas = 0
+            total_criados = 0
+            total_atualizados = 0
+            total_erros = 0
+
+            for numero_linha, linha in enumerate(sheet.iter_rows(min_row=2), start=2):
+                def valor(nome_coluna):
+                    indice = mapa_colunas.get(nome_coluna)
+
+                    if indice is None:
+                        return ""
+
+                    celula = linha[indice].value
+
+                    if celula is None:
+                        return ""
+
+                    return str(celula).strip()
+
+                nome_referencia = valor("nome_referencia")
+                marca_nome = valor("marca")
+                categoria_nome = valor("categoria")
+
+                if not nome_referencia or not marca_nome or not categoria_nome:
+                    total_erros += 1
+                    continue
+
+                total_linhas += 1
+
+                fabricante_nome = valor("fabricante_importador")
+                tipo_fabricante = valor("tipo_fabricante") or "FABRICANTE"
+                pais_origem = valor("pais_origem")
+
+                codigo_fabricante = valor("codigo_fabricante")
+                ean = valor("ean")
+                url_oficial = valor("url_oficial")
+                fonte_validacao = valor("fonte_validacao") or "SITE_FABRICANTE"
+                status_validacao = valor("status_validacao") or "PENDENTE"
+                observacao_validacao = valor("observacao_validacao")
+                ativo_texto = valor("ativo").lower()
+
+                ativo = True
+                if ativo_texto in ["não", "nao", "false", "0", "inativo"]:
+                    ativo = False
+
+                marca, _ = Marca.objects.get_or_create(
+                    nome=marca_nome.upper()
+                )
+
+                categoria, _ = Categoria.objects.get_or_create(
+                    nome=categoria_nome
+                )
+
+                fabricante_importador = None
+                if fabricante_nome:
+                    fabricante_importador, _ = FabricanteImportador.objects.get_or_create(
+                        nome=fabricante_nome,
+                        defaults={
+                            "tipo": tipo_fabricante,
+                            "pais_origem": pais_origem,
+                        },
+                    )
+
+                # Critério de identificação:
+                # 1. EAN, se existir
+                # 2. Código fabricante + marca
+                # 3. Nome referência + marca
+                referencia = None
+
+                if ean:
+                    referencia = ProdutoReferencia.objects.filter(ean=ean).first()
+
+                if not referencia and codigo_fabricante:
+                    referencia = ProdutoReferencia.objects.filter(
+                        marca=marca,
+                        codigo_fabricante=codigo_fabricante,
+                    ).first()
+
+                if not referencia:
+                    referencia = ProdutoReferencia.objects.filter(
+                        marca=marca,
+                        nome_referencia=nome_referencia,
+                    ).first()
+
+                if referencia:
+                    referencia.nome_referencia = nome_referencia
+                    referencia.marca = marca
+                    referencia.categoria = categoria
+                    referencia.fabricante_importador = fabricante_importador
+                    referencia.codigo_fabricante = codigo_fabricante
+                    referencia.ean = ean
+                    referencia.url_oficial = url_oficial
+                    referencia.fonte_validacao = fonte_validacao
+                    referencia.status_validacao = status_validacao
+                    referencia.observacao_validacao = observacao_validacao
+                    referencia.ativo = ativo
+                    referencia.save()
+
+                    total_atualizados += 1
+                else:
+                    ProdutoReferencia.objects.create(
+                        nome_referencia=nome_referencia,
+                        marca=marca,
+                        categoria=categoria,
+                        fabricante_importador=fabricante_importador,
+                        codigo_fabricante=codigo_fabricante,
+                        ean=ean,
+                        url_oficial=url_oficial,
+                        fonte_validacao=fonte_validacao,
+                        status_validacao=status_validacao,
+                        observacao_validacao=observacao_validacao,
+                        ativo=ativo,
+                    )
+
+                    total_criados += 1
+
+            messages.success(
+                request,
+                (
+                    f"Importação concluída. "
+                    f"Linhas processadas: {total_linhas}. "
+                    f"Criados: {total_criados}. "
+                    f"Atualizados: {total_atualizados}. "
+                    f"Linhas ignoradas/erro: {total_erros}."
+                )
+            )
+
+            return redirect("mercado:importar_referencias_excel")
+
+        except Exception as erro:
+            messages.error(request, f"Erro ao importar arquivo: {erro}")
+            return redirect("mercado:importar_referencias_excel")
+
+    return render(request, "mercado/importar_referencias_excel.html")
+
+def normalizar_para_comparacao(texto):
+    if not texto:
+        return ""
+
+    texto = str(texto).upper().strip()
+
+    substituicoes = {
+        ".": " ",
+        ",": " ",
+        "-": " ",
+        "/": " ",
+        "_": " ",
+        "  ": " ",
+    }
+
+    for antigo, novo in substituicoes.items():
+        texto = texto.replace(antigo, novo)
+
+    return " ".join(texto.split())
+
+
+def similaridade_texto(texto_a, texto_b):
+    texto_a = normalizar_para_comparacao(texto_a)
+    texto_b = normalizar_para_comparacao(texto_b)
+
+    if not texto_a or not texto_b:
+        return 0
+
+    return SequenceMatcher(None, texto_a, texto_b).ratio()
+
+
+def gerar_sugestao_para_produto(produto, referencias):
+    melhor_sugestao = None
+
+    produto_ean = normalizar_para_comparacao(produto.ean)
+    produto_codigo = normalizar_para_comparacao(produto.codigo_fabricante)
+    produto_marca = produto.marca.nome.upper() if produto.marca else ""
+
+    for referencia in referencias:
+        referencia_ean = normalizar_para_comparacao(referencia.ean)
+        referencia_codigo = normalizar_para_comparacao(referencia.codigo_fabricante)
+        referencia_marca = referencia.marca.nome.upper() if referencia.marca else ""
+
+        criterio = None
+        confianca = 0
+
+        # 1. Melhor critério: EAN igual.
+        if produto_ean and referencia_ean and produto_ean == referencia_ean:
+            criterio = "EAN igual"
+            confianca = 100
+
+        # 2. Código fabricante igual + marca igual.
+        elif (
+            produto_codigo
+            and referencia_codigo
+            and produto_codigo == referencia_codigo
+            and produto_marca
+            and referencia_marca
+            and produto_marca == referencia_marca
+        ):
+            criterio = "Código fabricante igual + marca igual"
+            confianca = 95
+
+        # 3. Código fabricante igual.
+        elif produto_codigo and referencia_codigo and produto_codigo == referencia_codigo:
+            criterio = "Código fabricante igual"
+            confianca = 85
+
+        # 4. Nome parecido + marca igual.
+        else:
+            similaridade = similaridade_texto(
+                produto.nome_original,
+                referencia.nome_referencia,
+            )
+
+            if (
+                similaridade >= 0.70
+                and produto_marca
+                and referencia_marca
+                and produto_marca == referencia_marca
+            ):
+                criterio = "Nome parecido + marca igual"
+                confianca = round(similaridade * 100, 2)
+
+            elif similaridade >= 0.82:
+                criterio = "Nome muito parecido"
+                confianca = round(similaridade * 100, 2)
+
+        if criterio and confianca > 0:
+            if not melhor_sugestao or confianca > melhor_sugestao["confianca"]:
+                melhor_sugestao = {
+                    "produto": produto,
+                    "referencia": referencia,
+                    "criterio": criterio,
+                    "confianca": confianca,
+                }
+
+    return melhor_sugestao
+
+
+def sugestoes_vinculo(request):
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+        "produto_referencia",
+    ).filter(
+        Q(produto_referencia__isnull=True)
+        | Q(status_vinculo="PENDENTE")
+        | Q(status_vinculo="DIVERGENTE")
+        | Q(status_vinculo="SEM_REFERENCIA")
+    )
+
+    referencias = ProdutoReferencia.objects.select_related(
+        "marca",
+        "categoria",
+        "fabricante_importador",
+    ).filter(
+        ativo=True
+    )
+
+    busca = request.GET.get("busca", "")
+    minimo_confianca = request.GET.get("minimo_confianca", "70")
+
+    if busca:
+        produtos = produtos.filter(
+            Q(nome_original__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+            | Q(url__icontains=busca)
+        )
+
+    try:
+        minimo_confianca_num = float(minimo_confianca)
+    except Exception:
+        minimo_confianca_num = 70
+
+    sugestoes = []
+
+    for produto in produtos.order_by("site__nome", "marca__nome", "nome_original"):
+        sugestao = gerar_sugestao_para_produto(produto, referencias)
+
+        if sugestao and sugestao["confianca"] >= minimo_confianca_num:
+            sugestoes.append(sugestao)
+
+    sugestoes.sort(key=lambda item: item["confianca"], reverse=True)
+
+    contexto = {
+        "sugestoes": sugestoes,
+        "total_sugestoes": len(sugestoes),
+        "busca": busca,
+        "minimo_confianca": minimo_confianca,
+    }
+
+    return render(request, "mercado/sugestoes_vinculo.html", contexto)
+
+
+def aplicar_sugestao_vinculo(request, produto_id, referencia_id):
+    if request.method != "POST":
+        return redirect("mercado:sugestoes_vinculo")
+
+    produto = get_object_or_404(ProdutoColetado, id=produto_id)
+    referencia = get_object_or_404(ProdutoReferencia, id=referencia_id)
+
+    produto.produto_referencia = referencia
+    produto.status_vinculo = "VINCULADO"
+
+    # Se o produto coletado estiver sem marca/categoria, aproveita a referência.
+    if not produto.marca and referencia.marca:
+        produto.marca = referencia.marca
+
+    if not produto.categoria and referencia.categoria:
+        produto.categoria = referencia.categoria
+
+    # Se estiver sem código/EAN, aproveita a referência oficial.
+    if not produto.codigo_fabricante and referencia.codigo_fabricante:
+        produto.codigo_fabricante = referencia.codigo_fabricante
+
+    if not produto.ean and referencia.ean:
+        produto.ean = referencia.ean
+
+    produto.save()
+
+    messages.success(
+        request,
+        f"Produto '{produto.nome_original}' vinculado à referência '{referencia.nome_referencia}'."
+    )
+
+    return redirect("mercado:sugestoes_vinculo")

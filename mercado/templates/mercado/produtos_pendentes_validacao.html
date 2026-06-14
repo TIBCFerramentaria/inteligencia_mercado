@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Ranking de mercado</title>
+    <title>Produtos pendentes de validação</title>
 
     <style>
         body {
@@ -32,6 +32,8 @@
             text-decoration: none;
             border-radius: 5px;
             margin-right: 8px;
+            display: inline-block;
+            margin-bottom: 8px;
         }
 
         .filtros {
@@ -65,18 +67,6 @@
             min-width: 180px;
             border: 1px solid #ccc;
             border-radius: 5px;
-        }
-
-        .checkbox-linha {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 8px;
-        }
-
-        .checkbox-linha input {
-            min-width: auto;
         }
 
         button {
@@ -115,30 +105,6 @@
             color: #555;
         }
 
-        a.link-produto {
-            color: #0056b3;
-            text-decoration: none;
-        }
-
-        a.link-produto:hover {
-            text-decoration: underline;
-        }
-
-        .disponivel {
-            color: green;
-            font-weight: bold;
-        }
-
-        .indisponivel {
-            color: red;
-            font-weight: bold;
-        }
-
-        .vinculado {
-            color: green;
-            font-weight: bold;
-        }
-
         .pendente {
             color: #b8860b;
             font-weight: bold;
@@ -154,16 +120,29 @@
             font-weight: bold;
         }
 
-        .preco {
-            font-weight: bold;
+        .acao {
+            background: #0056b3;
+            color: white;
+            padding: 7px 10px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+        }
+
+        .aviso {
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 25px;
         }
     </style>
 </head>
 <body>
 
-    <h1>Ranking de mercado</h1>
+    <h1>Produtos pendentes de validação</h1>
     <p class="subtitulo">
-        Última coleta por produto, ordenada pelo melhor ranking informado.
+        Produtos coletados que ainda precisam ser vinculados a um Produto Referência validado em fabricante, importador ou catálogo oficial.
     </p>
 
 <div class="menu">
@@ -179,10 +158,14 @@
         <a href="/admin/">Painel Admin</a>
     </div>
 
+    <div class="aviso">
+        Esta tela é uma fila de curadoria. O objetivo é validar os produtos coletados, confirmar código de fabricante/EAN e vincular ao Produto Referência correto.
+    </div>
+
     <div class="filtros">
         <form method="get">
             <div class="campo">
-                <label>Buscar produto, código ou EAN</label>
+                <label>Buscar produto, código, EAN ou URL</label>
                 <input type="text" name="busca" value="{{ busca }}" placeholder="Ex: Bosch, GSB13RE, EAN...">
             </div>
 
@@ -223,11 +206,15 @@
             </div>
 
             <div class="campo">
-                <label>Disponibilidade</label>
-                <div class="checkbox-linha">
-                    <input type="checkbox" name="somente_disponiveis" value="1" {% if somente_disponiveis == "1" %}checked{% endif %}>
-                    <span>Somente disponíveis</span>
-                </div>
+                <label>Status vínculo</label>
+                <select name="status_vinculo">
+                    <option value="">Todos</option>
+                    {% for valor, texto in status_choices %}
+                        <option value="{{ valor }}" {% if status_vinculo == valor %}selected{% endif %}>
+                            {{ texto }}
+                        </option>
+                    {% endfor %}
+                </select>
             </div>
 
             <button type="submit">Filtrar</button>
@@ -235,107 +222,55 @@
     </div>
 
     <p class="contador">
-        Total no ranking: {{ total_ranking }} produto(s)
-    </p>
-
-    <p>
-        <a href="/ranking/exportar/?{{ query_string }}" style="background:#0056b3; color:white; padding:10px 14px; text-decoration:none; border-radius:5px;">
-             Exportar Excel
-        </a>
+        Total pendente para validação: {{ total_produtos }} produto(s)
     </p>
 
     <table>
         <thead>
             <tr>
-                <th>Ranking geral</th>
-                <th>Ranking categoria</th>
                 <th>Produto coletado</th>
-                <th>Produto referência</th>
                 <th>Site</th>
                 <th>Marca</th>
                 <th>Categoria</th>
-                <th>Preço atual</th>
-                <th>Preço antigo</th>
-                <th>Desconto</th>
-                <th>Nota</th>
-                <th>Avaliações</th>
-                <th>Disponível</th>
+                <th>Código site</th>
+                <th>Código fabricante</th>
+                <th>EAN</th>
                 <th>Status vínculo</th>
-                <th>Data coleta</th>
-                <th>Link</th>
+                <th>URL</th>
+                <th>Ação</th>
             </tr>
         </thead>
         <tbody>
-            {% for coleta in ranking %}
+            {% for produto in produtos %}
                 <tr>
-                    <td>{{ coleta.ranking_geral|default:"-" }}</td>
-                    <td>{{ coleta.ranking_categoria|default:"-" }}</td>
-
-                    <td>{{ coleta.produto.nome_original }}</td>
-                    <td>{{ coleta.produto.produto_referencia|default:"-" }}</td>
-
-                    <td>{{ coleta.produto.site.nome }}</td>
-                    <td>{{ coleta.produto.marca|default:"-" }}</td>
-                    <td>{{ coleta.produto.categoria|default:"-" }}</td>
-
-                    <td class="preco">
-                        {% if coleta.preco_atual %}
-                            R$ {{ coleta.preco_atual }}
+                    <td>{{ produto.nome_original }}</td>
+                    <td>{{ produto.site.nome }}</td>
+                    <td>{{ produto.marca|default:"-" }}</td>
+                    <td>{{ produto.categoria|default:"-" }}</td>
+                    <td>{{ produto.codigo_site|default:"-" }}</td>
+                    <td>{{ produto.codigo_fabricante|default:"-" }}</td>
+                    <td>{{ produto.ean|default:"-" }}</td>
+                    <td>
+                        {% if produto.status_vinculo == "PENDENTE" %}
+                            <span class="pendente">{{ produto.get_status_vinculo_display }}</span>
+                        {% elif produto.status_vinculo == "DIVERGENTE" %}
+                            <span class="divergente">{{ produto.get_status_vinculo_display }}</span>
                         {% else %}
-                            -
+                            <span class="sem-referencia">{{ produto.get_status_vinculo_display }}</span>
                         {% endif %}
                     </td>
-
                     <td>
-                        {% if coleta.preco_antigo %}
-                            R$ {{ coleta.preco_antigo }}
-                        {% else %}
-                            -
-                        {% endif %}
+                        <a href="{{ produto.url }}" target="_blank">Abrir</a>
                     </td>
-
                     <td>
-                        {% if coleta.desconto_percentual %}
-                            {{ coleta.desconto_percentual }}%
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>{{ coleta.nota_media|default:"-" }}</td>
-                    <td>{{ coleta.quantidade_avaliacoes|default:"-" }}</td>
-
-                    <td>
-                        {% if coleta.disponivel %}
-                            <span class="disponivel">Sim</span>
-                        {% else %}
-                            <span class="indisponivel">Não</span>
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if coleta.produto.status_vinculo == "VINCULADO" %}
-                            <span class="vinculado">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% elif coleta.produto.status_vinculo == "PENDENTE" %}
-                            <span class="pendente">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% elif coleta.produto.status_vinculo == "DIVERGENTE" %}
-                            <span class="divergente">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% else %}
-                            <span class="sem-referencia">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% endif %}
-                    </td>
-
-                    <td>{{ coleta.data_coleta|date:"d/m/Y H:i" }}</td>
-
-                    <td>
-                        <a class="link-produto" href="{{ coleta.produto.url }}" target="_blank">
-                            Abrir
+                        <a class="acao" href="/admin/mercado/produtocoletado/{{ produto.id }}/change/" target="_blank">
+                            Validar
                         </a>
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="16">Nenhuma coleta encontrada.</td>
+                    <td colspan="10">Nenhum produto pendente de validação encontrado.</td>
                 </tr>
             {% endfor %}
         </tbody>

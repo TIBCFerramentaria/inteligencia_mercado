@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Sugestões de vínculo</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+            color: #222;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        .menu {
+            margin-bottom: 25px;
+        }
+
+        .menu a {
+            background: #222;
+            color: white;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 8px;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+
+        .filtros, .aviso {
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .filtros form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .campo {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 13px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input {
+            padding: 8px;
+            min-width: 180px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button, .botao {
+            background: #0056b3;
+            color: white;
+            padding: 9px 14px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .botao-aplicar {
+            background: green;
+        }
+
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #222;
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+
+        .contador {
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .confianca-alta {
+            color: green;
+            font-weight: bold;
+        }
+
+        .confianca-media {
+            color: #b8860b;
+            font-weight: bold;
+        }
+
+        .msg {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+
+        .success {
+            background: #d1e7dd;
+            border: 1px solid #badbcc;
+        }
+
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c2c7;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Sugestões de vínculo</h1>
+    <p class="subtitulo">
+        Sugestões automáticas entre produtos coletados e produtos referência, usando EAN, código de fabricante, marca e similaridade do nome.
+    </p>
+
+<div class="menu">
+        <a href="/">Dashboard</a>
+        <a href="/ranking/">Ranking de mercado</a>
+        <a href="/validacao/">Pendentes de validação</a>
+        <a href="/validacao/sugestoes/">Sugestões de vínculo</a>
+        <a href="/marcas/">Força de marcas</a>
+        <a href="/precos/">Preço médio</a>
+        <a href="/produtos/">Produtos monitorados</a>
+        <a href="/referencias/">Produtos referência</a>
+        <a href="/referencias/importar/">Importar referências</a>
+        <a href="/admin/">Painel Admin</a>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="msg {{ message.tags }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="aviso">
+        Revise as sugestões antes de aplicar. EAN igual é o melhor critério. Nome parecido deve ser usado com mais cuidado.
+    </div>
+
+    <div class="filtros">
+        <form method="get">
+            <div class="campo">
+                <label>Buscar produto coletado</label>
+                <input type="text" name="busca" value="{{ busca }}" placeholder="Ex: Bosch, GSB13RE, EAN...">
+            </div>
+
+            <div class="campo">
+                <label>Confiança mínima</label>
+                <input type="number" name="minimo_confianca" value="{{ minimo_confianca }}" min="0" max="100" step="1">
+            </div>
+
+            <button type="submit">Filtrar</button>
+        </form>
+    </div>
+
+    <p class="contador">
+        Total de sugestões encontradas: {{ total_sugestoes }}
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Confiança</th>
+                <th>Critério</th>
+                <th>Produto coletado</th>
+                <th>Site</th>
+                <th>Marca coletada</th>
+                <th>Código coletado</th>
+                <th>EAN coletado</th>
+                <th>Produto referência sugerido</th>
+                <th>Marca referência</th>
+                <th>Código referência</th>
+                <th>EAN referência</th>
+                <th>Ação</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sugestao in sugestoes %}
+                <tr>
+                    <td>
+                        {% if sugestao.confianca >= 90 %}
+                            <span class="confianca-alta">{{ sugestao.confianca }}%</span>
+                        {% else %}
+                            <span class="confianca-media">{{ sugestao.confianca }}%</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ sugestao.criterio }}</td>
+
+                    <td>{{ sugestao.produto.nome_original }}</td>
+                    <td>{{ sugestao.produto.site.nome }}</td>
+                    <td>{{ sugestao.produto.marca|default:"-" }}</td>
+                    <td>{{ sugestao.produto.codigo_fabricante|default:"-" }}</td>
+                    <td>{{ sugestao.produto.ean|default:"-" }}</td>
+
+                    <td>{{ sugestao.referencia.nome_referencia }}</td>
+                    <td>{{ sugestao.referencia.marca|default:"-" }}</td>
+                    <td>{{ sugestao.referencia.codigo_fabricante|default:"-" }}</td>
+                    <td>{{ sugestao.referencia.ean|default:"-" }}</td>
+
+                    <td>
+                        <form method="post" action="/validacao/sugestoes/aplicar/{{ sugestao.produto.id }}/{{ sugestao.referencia.id }}/">
+                            {% csrf_token %}
+                            <button class="botao-aplicar" type="submit">Aplicar vínculo</button>
+                        </form>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="12">Nenhuma sugestão encontrada com os filtros atuais.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
