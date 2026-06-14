@@ -22,6 +22,13 @@ class Command(BaseCommand):
         )
 
         parser.add_argument(
+            "--max-paginas", 
+            type=int, 
+            default=20,
+            help="Quantidade máxima de paginas a coletar.",
+        )
+
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Apenas mostra os produtos encontrados, sem salvar no banco.",
@@ -30,14 +37,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         limite = options["limite"]
         dry_run = options["dry_run"]
+        max_paginas = options["max_paginas"]
+        
 
         self.stdout.write(
-            self.style.WARNING(
-                f"Iniciando coleta da Loja do Mecânico. Limite: {limite}. Dry-run: {dry_run}"
-            )
+                f"Iniciando coleta da Loja do Mecânico. "
+                f"Limite: {limite}. "
+                f"Máximo de páginas: {max_paginas}. "
+                f"Dry-run: {dry_run}"
         )
 
-        produtos = coletar_mais_vendidos(limite=limite)
+        produtos = coletar_mais_vendidos(limite=limite, max_paginas=max_paginas)
 
         self.stdout.write(
             self.style.SUCCESS(f"Produtos encontrados: {len(produtos)}")

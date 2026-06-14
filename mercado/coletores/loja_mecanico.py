@@ -271,24 +271,45 @@ def extrair_produtos_do_html(html, limite=None):
 
     return produtos
 
+def montar_url_mais_vendidos_pagina(pagina):
+    if pagina <= 1:
+        return URL_MAIS_VENDIDOS
 
-# --- FUNÇÃO ADAPTADA COM SELENIUM, STEALTH E A EXTENSÃO ---
-def coletar_mais_vendidos(limite=None):
-    # Configurando o navegador Chrome
+    return f"{URL_MAIS_VENDIDOS}?page={pagina}"
+
+def coletar_mais_vendidos(limite=None, max_paginas=20):
+    produtos_coletados = []
+    urls_ja_coletadas = set()
+
+    if limite is not None:
+        try:
+            limite = int(limite)
+        except Exception:
+            limite = None
+
+    if max_paginas is not None:
+        try:
+            max_paginas = int(max_paginas)
+        except Exception:
+            max_paginas = 20
+
+    print("[INFO] Configurando o navegador Chrome com Selenium-Stealth...")
+
+    # --- CONFIGURAÇÃO DO SELENIUM E EXTENSÃO HCAPTCHA SOLVER ---
     options = Options()
     options.add_argument("start-maximized")
 
-    # Caminho onde você deve colocar a pasta 'hektcaptcha' extraída do GitHub
+    # Aponta para a pasta onde está a extensão extraída do GitHub
     caminho_extensao = os.path.abspath("./hektcaptcha") 
     options.add_argument(f"--load-extension={caminho_extensao}")
 
-    # Remove os rastros de automação padrão que denunciam o robô
+    # Remove os alertas visuais e travas de automação do Chrome
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
 
     driver = webdriver.Chrome(options=options)
 
-    # Aplica a camuflagem profunda anti-detecção
+    # Aplica as camuflagens do Selenium-Stealth no navegador
     stealth(driver,
             languages=["pt-BR", "pt"],
             vendor="Google Inc.",
@@ -297,53 +318,105 @@ def coletar_mais_vendidos(limite=None):
             renderer="Intel Iris OpenGL Engine",
             fix_hairline=True)
 
-    html_da_pagina = ""
-
     try:
-        print("[INFO] Abrindo o navegador e acessando o site...")
-        driver.get(URL_MAIS_VENDIDOS)
-        
-        # Aguarda até 20 segundos para ver se um iframe do hCaptcha surge na tela
-        print("[INFO] Verificando se há hCaptcha impedindo o acesso...")
-        try:
-            wait = WebDriverWait(driver, 20)
-            wait.until(EC.presence_of_element_located((By.XPATH, "//iframe[contains(@title, 'hCaptcha')]")))
-            print("[INFO] hCaptcha detectado! Aguardando o Hcaptcha Solver resolver...")
-            
-            # Fica monitorando a resposta do hCaptcha até a extensão terminar a resolução visual
-            tempo_maximo = 60  
-            inicio = time.time()
-            while time.time() - inicio < tempo_maximo:
-                try:
-                    token = driver.execute_script("return hcaptcha.getResponse();")
-                    if token and len(token) > 0:
-                        print("[SUCESSO] hCaptcha foi decodificado e resolvido pela IA da extensão!")
-                        break
-                except Exception:
-                    pass
-                time.sleep(2)
-            
-            # Pequeno tempo extra de estabilização pós-resolução
-            time.sleep(5)
-            
-        except Exception:
-            print("[INFO] Nenhum hCaptcha imediato travando a tela ou ele já foi pulado.")
+        for numero_pagina in range(1, max_paginas + 1):
+            if limite and len(produtos_coletados) >= limite:
+                print(f"[INFO] Limite de {limite} produtos atingido.")
+                break
 
-        # Captura o HTML final renderizado após a liberação da segurança
-        html_da_pagina = driver.page_source
-        print("[INFO] HTML obtido com sucesso. Iniciando extração dos produtos...")
+            # Usa a sua função auxiliar para gerar o link da página atual
+            url_pagina = montar_url_mais_vendidos_pagina(numero_pagina)
+
+            print("=" * 80)
+            print(f"[INFO] Acessando página {numero_pagina}: {url_pagina}")
+            print("=" * 80)
+
+            try:
+                # O Selenium abre a URL da página atual
+                driver.get(url_pagina)
+                time.sleep(5)  # Tempo padrão de espera para o carregamento
+
+            except Exception as erro:
+                print(f"[ERRO] Falha ao abrir página {numero_pagina}: {erro}")
+                break
+
+            # --- MONITORAMENTO E QUEBRA AUTOMÁTICA DO hCAPTCHA ---
+            html_da_pagina = driver.page_source
+            html_minusculo = html_da_pagina.lower()
+
+            if "hcaptcha" in html_minusculo or "captcha" in html_minusculo:
+                print("[AVISO] hCaptcha detectado! Aguardando a extensão Hcaptcha Solver agir...")
+                
+                # Monitora o token do hCaptcha por até 60 segundos por página
+                tempo_maximo = 60  
+                inicio = time.time()
+                while time.time() - inicio < tempo_maximo:
+                    try:
+                        token = driver.execute_script("return hcaptcha.getResponse();")
+                        if token and len(token) > 0:
+                            print("[SUCESSO] hCaptcha foi decodificado pela extensão!")
+                            time.sleep(3)  # Aguarda a tela atualizar após o sumiço do captcha
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                else:
+                    print("[AVISO] A extensão demorou muito para responder. Tentando continuar assim mesmo.")
+
+                # Atualiza o código HTML após a liberação do Captcha
+                html_da_pagina = driver.page_source
+                html_minusculo = html_da_pagina.lower()
+
+            if "r$" not in html_minusculo and "adicionar ao carrinho" not in html_minusculo:
+                print("[AVISO] Página não parece conter produtos/preços válidos. Coleta interrompida.")
+                break
+
+            itens_restantes = None
+            if limite:
+                itens_restantes = limite - len(produtos_coletados)
+
+            # Envia o HTML limpo obtido pelo Selenium para a sua função BeautifulSoup original
+            produtos_da_pagina = extrair_produtos_do_html(
+                html_da_pagina,
+                limite=itens_restantes,
+            )
+
+            print(f"[INFO] Produtos extraídos da página {numero_pagina}: {len(produtos_da_pagina)}")
+
+            if not produtos_da_pagina:
+                print("[INFO] Nenhum produto encontrado nesta página. Encerrando paginação.")
+                break
+
+            novos_nesta_pagina = 0
+
+            for produto in produtos_da_pagina:
+                url_produto = produto.get("url")
+
+                if not url_produto or url_produto in urls_ja_coletadas:
+                    continue
+
+                urls_ja_coletadas.add(url_produto)
+
+                # Ajusta o ranking dinamicamente baseado no total acumulado
+                produto["ranking_geral"] = len(produtos_coletados) + 1
+
+                produtos_coletados.append(produto)
+                novos_nesta_pagina += 1
+
+                if limite and len(produtos_coletados) >= limite:
+                    break
+
+            print(f"[INFO] Produtos novos adicionados da página {numero_pagina}: {novos_nesta_pagina}")
+            print(f"[INFO] Total acumulado até agora: {len(produtos_coletados)}")
+
+            if novos_nesta_pagina == 0:
+                print("[INFO] Página sem produtos novos. Encerrando para evitar repetição infinita.")
+                break
 
     finally:
-        # Fecha a janela do navegador aberta de forma limpa para não deixar processos soltos no PC
+        # Garante que o Chrome seja fechado no final, mesmo se ocorrer algum erro no loop
+        print("[INFO] Fechando navegador...")
         driver.quit()
 
-    # Passa o conteúdo do HTML obtido pela janela segura para a sua rotina clássica do BeautifulSoup
-    if html_da_pagina:
-        return extrair_produtos_do_html(html_da_pagina, limite=limite)
-    return []
-
-
-# --- BLOCO DE TESTE ---
-if __name__ == "__main__":
-    # Executa o extrator coletando apenas os 3 primeiros produtos como teste rápido
-    lista_produtos = coletar_mais_vendidos(limite=3)
+    print(f"[INFO] Coleta finalizada. Total de produtos coletados: {len(produtos_coletados)}")
+    return produtos_coletados
