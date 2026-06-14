@@ -1200,3 +1200,86 @@ def aplicar_sugestao_vinculo(request, produto_id, referencia_id):
     )
 
     return redirect("mercado:sugestoes_vinculo")
+
+def aplicar_sugestoes_alta_confianca(request):
+    if request.method != "POST":
+        return redirect("mercado:sugestoes_vinculo")
+
+    try:
+        minimo_confianca = float(request.POST.get("minimo_confianca_lote", "95"))
+    except Exception:
+        minimo_confianca = 95
+
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+        "produto_referencia",
+    ).filter(
+        Q(produto_referencia__isnull=True)
+        | Q(status_vinculo="PENDENTE")
+        | Q(status_vinculo="DIVERGENTE")
+        | Q(status_vinculo="SEM_REFERENCIA")
+    )
+
+    referencias = ProdutoReferencia.objects.select_related(
+        "marca",
+        "categoria",
+        "fabricante_importador",
+    ).filter(
+        ativo=True
+    )
+
+    criterios_permitidos = {
+        "EAN igual",
+        "Código fabricante igual + marca igual",
+    }
+
+    total_vinculados = 0
+    total_ignorados = 0
+
+    for produto in produtos:
+        sugestao = gerar_sugestao_para_produto(produto, referencias)
+
+        if not sugestao:
+            total_ignorados += 1
+            continue
+
+        if sugestao["confianca"] < minimo_confianca:
+            total_ignorados += 1
+            continue
+
+        if sugestao["criterio"] not in criterios_permitidos:
+            total_ignorados += 1
+            continue
+
+        referencia = sugestao["referencia"]
+
+        produto.produto_referencia = referencia
+        produto.status_vinculo = "VINCULADO"
+
+        if not produto.marca and referencia.marca:
+            produto.marca = referencia.marca
+
+        if not produto.categoria and referencia.categoria:
+            produto.categoria = referencia.categoria
+
+        if not produto.codigo_fabricante and referencia.codigo_fabricante:
+            produto.codigo_fabricante = referencia.codigo_fabricante
+
+        if not produto.ean and referencia.ean:
+            produto.ean = referencia.ean
+
+        produto.save()
+        total_vinculados += 1
+
+    messages.success(
+        request,
+        (
+            f"Aplicação em lote concluída. "
+            f"Produtos vinculados: {total_vinculados}. "
+            f"Produtos ignorados: {total_ignorados}."
+        )
+    )
+
+    return redirect("mercado:sugestoes_vinculo")

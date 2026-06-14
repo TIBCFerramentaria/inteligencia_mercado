@@ -17,4 +17,5 @@ urlpatterns = [
     path("validacao/", views.produtos_pendentes_validacao, name="produtos_pendentes_validacao"),
     path("validacao/sugestoes/", views.sugestoes_vinculo, name="sugestoes_vinculo"),
     path("validacao/sugestoes/aplicar/<int:produto_id>/<int:referencia_id>/", views.aplicar_sugestao_vinculo, name="aplicar_sugestao_vinculo"),
+    path("validacao/sugestoes/aplicar-lote/", views.aplicar_sugestoes_alta_confianca, name="aplicar_sugestoes_alta_confianca"),
 ]

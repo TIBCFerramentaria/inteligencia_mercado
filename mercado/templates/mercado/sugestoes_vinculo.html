@@ -169,6 +169,19 @@
         Revise as sugestões antes de aplicar. EAN igual é o melhor critério. Nome parecido deve ser usado com mais cuidado.
     </div>
 
+    <div class="aviso">
+    <strong>Aplicação em lote segura:</strong>
+    este botão aplica automaticamente apenas vínculos com EAN igual ou código de fabricante igual + marca igual.
+
+    <form method="post" action="/validacao/sugestoes/aplicar-lote/" style="margin-top: 15px;">
+        {% csrf_token %}
+        <input type="hidden" name="minimo_confianca_lote" value="95">
+        <button class="botao-aplicar" type="submit">
+            Aplicar em lote vínculos de alta confiança
+        </button>
+    </form>
+</div>
+
     <div class="filtros">
         <form method="get">
             <div class="campo">
