@@ -830,6 +830,141 @@ def exportar_ranking_excel(request):
     workbook.save(response)
     return response
 
+def exportar_produtos_pendentes_excel(request):
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+        "produto_referencia",
+    ).filter(
+        ativo=True,
+        status_vinculo="PENDENTE",
+    )
+
+    busca = request.GET.get("busca", "")
+
+    if busca:
+        produtos = produtos.filter(
+            Q(nome_original__icontains=busca)
+            | Q(codigo_site__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+            | Q(url__icontains=busca)
+        )
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Produtos pendentes"
+
+    cabecalhos = [
+        "Nome do produto",
+        "Site",
+        "Marca",
+        "Categoria",
+        "Código site",
+        "Código fabricante",
+        "EAN",
+        "Preço à vista",
+        "Preço a prazo",
+        "Quantidade parcelas",
+        "Valor parcela",
+        "Parcelamento",
+        "Preço antigo",
+        "Desconto (%)",
+        "Ranking geral",
+        "Nota média",
+        "Quantidade avaliações",
+        "Data última coleta",
+        "Status vínculo",
+        "Produto referência vinculado",
+        "URL",
+    ]
+
+    sheet.append(cabecalhos)
+
+    for produto in produtos:
+        ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+
+        preco_atual = ""
+        preco_prazo = ""
+        quantidade_parcelas = ""
+        valor_parcela = ""
+        parcelamento = ""
+        preco_antigo = ""
+        desconto_percentual = ""
+        ranking_geral = ""
+        nota_media = ""
+        quantidade_avaliacoes = ""
+        data_ultima_coleta = ""
+
+        if ultima_coleta:
+            preco_atual = float(ultima_coleta.preco_atual) if ultima_coleta.preco_atual is not None else ""
+            preco_prazo = float(ultima_coleta.preco_prazo) if ultima_coleta.preco_prazo is not None else ""
+            quantidade_parcelas = ultima_coleta.quantidade_parcelas or ""
+            valor_parcela = float(ultima_coleta.valor_parcela) if ultima_coleta.valor_parcela is not None else ""
+            preco_antigo = float(ultima_coleta.preco_antigo) if ultima_coleta.preco_antigo is not None else ""
+            desconto_percentual = float(ultima_coleta.desconto_percentual) if ultima_coleta.desconto_percentual is not None else ""
+            ranking_geral = ultima_coleta.ranking_geral or ""
+            nota_media = float(ultima_coleta.nota_media) if ultima_coleta.nota_media is not None else ""
+            quantidade_avaliacoes = ultima_coleta.quantidade_avaliacoes or ""
+            data_ultima_coleta = ultima_coleta.data_coleta.strftime("%d/%m/%Y %H:%M") if ultima_coleta.data_coleta else ""
+
+            if ultima_coleta.quantidade_parcelas and ultima_coleta.valor_parcela:
+                parcelamento = f"{ultima_coleta.quantidade_parcelas}x de R$ {ultima_coleta.valor_parcela}"
+
+        referencia_nome = ""
+
+        if produto.produto_referencia:
+            referencia_nome = str(produto.produto_referencia)
+
+        sheet.append([
+            produto.nome_original,
+            produto.site.nome if produto.site else "",
+            produto.marca.nome if produto.marca else "",
+            produto.categoria.nome if produto.categoria else "",
+            produto.codigo_site,
+            produto.codigo_fabricante,
+            produto.ean,
+            preco_atual,
+            preco_prazo,
+            quantidade_parcelas,
+            valor_parcela,
+            parcelamento,
+            preco_antigo,
+            desconto_percentual,
+            ranking_geral,
+            nota_media,
+            quantidade_avaliacoes,
+            data_ultima_coleta,
+            produto.status_vinculo,
+            referencia_nome,
+            produto.url,
+        ])
+
+    for coluna in sheet.columns:
+        largura = 12
+        letra_coluna = coluna[0].column_letter
+
+        for celula in coluna:
+            if celula.value:
+                largura = max(largura, len(str(celula.value)) + 2)
+
+        sheet.column_dimensions[letra_coluna].width = min(largura, 70)
+
+    for letra_coluna in ["H", "I", "K", "M"]:
+        for celula in sheet[letra_coluna][1:]:
+            celula.number_format = 'R$ #,##0.00'
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    response["Content-Disposition"] = 'attachment; filename="produtos_pendentes_validacao.xlsx"'
+
+    workbook.save(response)
+
+    return response
+
 def produtos_pendentes_validacao(request):
     produtos = ProdutoColetado.objects.select_related(
         "site",

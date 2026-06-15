@@ -51,6 +51,16 @@
             align-items: end;
         }
 
+        .botao {
+            display: inline-block;
+            padding: 8px 14px;
+            background-color: #198754;
+            color: #ffffff;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
         .campo {
             display: flex;
             flex-direction: column;
@@ -161,6 +171,8 @@
     <div class="aviso">
         Esta tela é uma fila de curadoria. O objetivo é validar os produtos coletados, confirmar código de fabricante/EAN e vincular ao Produto Referência correto.
     </div>
+
+    <a href="/validacao/exportar/?busca={{ busca }}">Exportar Excel</a>
 
     <div class="filtros">
         <form method="get">
