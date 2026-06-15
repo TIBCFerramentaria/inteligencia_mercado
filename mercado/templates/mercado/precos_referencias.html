@@ -25,11 +25,26 @@
             margin-bottom: 20px;
         }
 
+        .menu {
+             margin-bottom: 20px;
+               display: flex;
+               flex-wrap: wrap;
+              gap: 8px;
+        }
+
         .menu a {
-            margin-right: 12px;
-            text-decoration: none;
-            color: #0b5ed7;
-            font-weight: bold;
+           display: inline-block;
+              padding: 8px 12px;
+               background-color: #0b5ed7;
+               color: #ffffff;
+              text-decoration: none;
+               border-radius: 4px;
+              font-weight: bold;
+              font-size: 14px;
+            }
+
+            .menu a:hover {
+              background-color: #084298;
         }
 
         form {
@@ -46,9 +61,30 @@
             max-width: 100%;
         }
 
-        button {
-            padding: 8px 14px;
-            cursor: pointer;
+        button,
+        .botao {
+           display: inline-block;
+           padding: 8px 14px;
+           cursor: pointer;
+           background-color: #198754;
+           color: #ffffff;
+           border: none;
+           border-radius: 4px;
+           text-decoration: none;
+           font-weight: bold;
+        }
+
+        button:hover,
+        .botao:hover {
+            background-color: #146c43;
+        }
+
+        .botao-secundario {
+    background-color: #6c757d;
+        }
+
+        .botao-secundario:hover {
+             background-color: #565e64;
         }
 
         .resumo {
@@ -94,11 +130,16 @@
 <body>
 
     <div class="menu">
-        <a href="/">Dashboard</a>
-        <a href="/ranking/">Ranking</a>
-        <a href="/marcas/">Força marcas</a>
-        <a href="/precos/">Preço médio</a>
-        <a href="/admin/">Admin</a>
+      <a href="/">Dashboard</a>
+      <a href="/ranking/">Ranking</a>
+      <a href="/validacao/">Pendentes</a>
+      <a href="/validacao/sugestoes/">Sugestões</a>
+      <a href="/marcas/">Força marcas</a>
+      <a href="/precos/">Preço médio</a>
+      <a href="/produtos/">Produtos</a>
+      <a href="/referencias/">Referências</a>
+      <a href="/referencias/importar/">Importar referências</a>
+      <a href="/admin/">Admin</a>
     </div>
 
     <h1>Preço médio por produto referência</h1>
@@ -117,7 +158,8 @@
         >
 
         <button type="submit">Filtrar</button>
-        <a href="/precos/">Limpar</a>
+        <a class="botao botao-secundario" href="/precos/">Limpar</a>
+        <a class="botao" href="/precos/exportar/?busca={{ busca }}">Exportar Excel</a>
     </form>
 
     <div class="resumo">

@@ -382,6 +382,163 @@ def precos_referencias(request):
 
     return render(request, "mercado/precos_referencias.html", contexto)
 
+def exportar_precos_referencias_excel(request):
+    busca = request.GET.get("busca", "")
+
+    referencias = ProdutoReferencia.objects.all()
+
+    if busca:
+        referencias = referencias.filter(
+            Q(nome__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+        )
+
+    linhas = []
+
+    for referencia in referencias:
+        produtos_vinculados = ProdutoColetado.objects.filter(
+            produto_referencia=referencia,
+            ativo=True,
+        )
+
+        coletas = []
+
+        for produto in produtos_vinculados:
+            ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+
+            if ultima_coleta:
+                coletas.append(ultima_coleta)
+
+        if not coletas:
+            continue
+
+        precos_vista = [
+            coleta.preco_atual
+            for coleta in coletas
+            if coleta.preco_atual is not None
+        ]
+
+        precos_prazo = [
+            coleta.preco_prazo
+            for coleta in coletas
+            if coleta.preco_prazo is not None
+        ]
+
+        if not precos_vista:
+            continue
+
+        menor_preco_vista = min(precos_vista)
+        maior_preco_vista = max(precos_vista)
+        preco_medio_vista = sum(precos_vista) / len(precos_vista)
+
+        preco_medio_prazo = None
+        diferenca_media_prazo_vista = None
+
+        if precos_prazo:
+            preco_medio_prazo = sum(precos_prazo) / len(precos_prazo)
+            diferenca_media_prazo_vista = calcular_diferenca_prazo_vista(
+                preco_medio_vista,
+                preco_medio_prazo,
+            )
+
+        ultima_data_coleta = max(
+            coleta.data_coleta
+            for coleta in coletas
+            if coleta.data_coleta
+        )
+
+        nome_referencia = obter_nome_referencia(
+            referencia,
+            produtos_vinculados,
+        )
+
+        linhas.append({
+            "referencia": referencia,
+            "nome_referencia": nome_referencia,
+            "qtd_produtos_vinculados": produtos_vinculados.count(),
+            "qtd_coletas": len(coletas),
+            "menor_preco_vista": menor_preco_vista,
+            "maior_preco_vista": maior_preco_vista,
+            "preco_medio_vista": preco_medio_vista,
+            "preco_medio_prazo": preco_medio_prazo,
+            "diferenca_media_prazo_vista": diferenca_media_prazo_vista,
+            "ultima_data_coleta": ultima_data_coleta,
+        })
+
+    linhas.sort(
+        key=lambda item: item["preco_medio_vista"] if item["preco_medio_vista"] is not None else Decimal("999999999")
+    )
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Preço médio"
+
+    cabecalhos = [
+        "Produto referência",
+        "Código fabricante",
+        "EAN",
+        "Qtd. produtos vinculados",
+        "Qtd. coletas usadas",
+        "Menor preço à vista",
+        "Maior preço à vista",
+        "Preço médio à vista",
+        "Preço médio a prazo",
+        "Diferença média prazo x vista (%)",
+        "Última coleta",
+    ]
+
+    sheet.append(cabecalhos)
+
+    for item in linhas:
+        referencia = item["referencia"]
+
+        sheet.append([
+            item["nome_referencia"],
+            referencia.codigo_fabricante,
+            referencia.ean,
+            item["qtd_produtos_vinculados"],
+            item["qtd_coletas"],
+            float(item["menor_preco_vista"]) if item["menor_preco_vista"] is not None else "",
+            float(item["maior_preco_vista"]) if item["maior_preco_vista"] is not None else "",
+            float(item["preco_medio_vista"]) if item["preco_medio_vista"] is not None else "",
+            float(item["preco_medio_prazo"]) if item["preco_medio_prazo"] is not None else "",
+            float(item["diferenca_media_prazo_vista"]) if item["diferenca_media_prazo_vista"] is not None else "",
+            item["ultima_data_coleta"].strftime("%d/%m/%Y %H:%M") if item["ultima_data_coleta"] else "",
+        ])
+
+    # Formatação simples das colunas
+    for coluna in sheet.columns:
+        largura = 12
+        letra_coluna = coluna[0].column_letter
+
+        for celula in coluna:
+            if celula.value:
+                largura = max(largura, len(str(celula.value)) + 2)
+
+        sheet.column_dimensions[letra_coluna].width = min(largura, 70)
+
+    # Formatação monetária
+    colunas_monetarias = ["F", "G", "H", "I"]
+
+    for letra_coluna in colunas_monetarias:
+        for celula in sheet[letra_coluna][1:]:
+            celula.number_format = 'R$ #,##0.00'
+
+    # Formatação percentual
+    for celula in sheet["J"][1:]:
+        celula.number_format = '0.00'
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    response["Content-Disposition"] = 'attachment; filename="preco_medio_referencias.xlsx"'
+
+    workbook.save(response)
+
+    return response
+
 def exportar_precos_excel(request):
     coletas = ColetaProduto.objects.select_related(
         "produto",
