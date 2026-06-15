@@ -1,7 +1,7 @@
 import time
 import re
 from decimal import Decimal
-from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit
+from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
 
 from bs4 import BeautifulSoup
 
@@ -339,6 +339,70 @@ def extrair_preco_a_vista_do_card(card):
 
     return converter_preco_para_decimal(precos[0])
 
+def remover_secoes_recomendacao_html(html):
+    if not html:
+        return html
+
+    html_lower = html.lower()
+
+    marcadores = [
+        "mais vendidos",
+        "produtos mais vendidos",
+        "quem viu também",
+        "quem viu, viu também",
+        "produtos relacionados",
+        "você também pode gostar",
+        "voce tambem pode gostar",
+        "aproveite também",
+        "aproveite tambem",
+    ]
+
+    menor_indice = None
+
+    for marcador in marcadores:
+        indice = html_lower.find(marcador)
+
+        if indice != -1:
+            if menor_indice is None or indice < menor_indice:
+                menor_indice = indice
+
+    if menor_indice is not None:
+        return html[:menor_indice]
+
+    return html
+
+def esta_dentro_de_carrossel_recomendacao(elemento):
+    atual = elemento
+
+    while atual:
+        if not hasattr(atual, "get"):
+            break
+
+        id_elemento = atual.get("id", "")
+        classes = atual.get("class", [])
+
+        if isinstance(classes, str):
+            classes = classes.split()
+
+        classes_texto = " ".join(classes).lower()
+
+        # Este é o carrossel específico que você encontrou no HTML:
+        # <div class="produtos carousel carousel_26 is-draggable" id="prod_lista">
+        if (
+            id_elemento == "prod_lista"
+            and "produtos" in classes_texto
+            and "carousel" in classes_texto
+            and "carousel_26" in classes_texto
+        ):
+            return True
+
+        if "carousel_26" in classes_texto:
+            return True
+
+        atual = atual.parent
+
+    return False
+
 def extrair_produtos_do_html(html, url_base, limite=None):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -346,6 +410,9 @@ def extrair_produtos_do_html(html, url_base, limite=None):
     urls_vistas = set()
 
     for link in soup.find_all("a", href=True):
+        if esta_dentro_de_carrossel_recomendacao(link):
+            continue
+        
         if not parece_link_produto(link):
             continue
 
@@ -419,6 +486,67 @@ def extrair_produtos_do_html(html, url_base, limite=None):
 
     return produtos
 
+def obter_parametro_url(url, nome_parametro):
+    parametros = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
+    return parametros.get(nome_parametro)
+
+
+def encontrar_parametro_em_links(html, url_atual, nome_parametro):
+    valor_atual = obter_parametro_url(url_atual, nome_parametro)
+
+    if valor_atual:
+        return valor_atual
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    for link in soup.find_all("a", href=True):
+        href = link.get("href", "")
+
+        if not href or href.startswith("javascript:"):
+            continue
+
+        url_candidata = urljoin(url_atual, href)
+        valor = obter_parametro_url(url_candidata, nome_parametro)
+
+        if valor:
+            return valor
+
+    return None
+
+
+def montar_url_dutra_pagina(url_base, numero_pagina):
+    if numero_pagina <= 1:
+        return url_base
+
+    partes = urlsplit(url_base)
+
+    parametros = dict(parse_qsl(partes.query, keep_blank_values=True))
+
+    caminho = partes.path.lower()
+
+    # Caso específico da categoria de alicates da Dutra.
+    # URL observada:
+    # /c/ferramentas-ferramentas-manuais-alicates
+    if "id_categoria_site" not in parametros:
+        if "ferramentas-ferramentas-manuais-alicates" in caminho:
+            parametros["id_categoria_site"] = "467"
+
+    parametros.setdefault("it_preco_inicial", "0")
+    parametros.setdefault("it_preco_final", "0")
+    parametros.setdefault("ordering", "relevancia")
+    parametros.setdefault("max", "48")
+
+    parametros["pg_num"] = str(numero_pagina)
+
+    nova_query = urlencode(parametros)
+
+    return urlunsplit((
+        partes.scheme,
+        partes.netloc,
+        partes.path,
+        nova_query,
+        "",
+    ))
 
 def encontrar_url_proxima_pagina(html, url_atual, numero_pagina_atual):
     soup = BeautifulSoup(html, "html.parser")
@@ -451,7 +579,8 @@ def encontrar_url_proxima_pagina(html, url_atual, numero_pagina_atual):
             or f"page={numero_proxima}" in url_candidata.lower()
             or f"pagina={numero_proxima}" in url_candidata.lower()
             or f"p={numero_proxima}" in url_candidata.lower()
-        )
+            or f"pg_num={numero_proxima}" in url_candidata.lower()
+        )   
 
         if eh_proxima:
             candidatos.append(url_candidata)
@@ -495,6 +624,10 @@ def coletar_produtos_dutra(
 
     try:
         for numero_pagina in range(1, max_paginas + 1):
+            url_pagina = montar_url_dutra_pagina(
+                url_base,
+                numero_pagina,
+                )
             if limite and len(produtos_coletados) >= limite:
                 print(f"[INFO] Limite de {limite} produtos atingido.")
                 break
@@ -556,12 +689,6 @@ def coletar_produtos_dutra(
             print(f"[INFO] Produtos novos adicionados da página {numero_pagina}: {novos_nesta_pagina}")
             print(f"[INFO] Total acumulado até agora: {len(produtos_coletados)}")
 
-            proxima_url = encontrar_url_proxima_pagina(
-                html_da_pagina,
-                url_pagina,
-                numero_pagina,
-            )
-
             if novos_nesta_pagina == 0:
                 print("[INFO] Página sem produtos novos. Encerrando para evitar repetição infinita.")
                 break
@@ -569,14 +696,6 @@ def coletar_produtos_dutra(
             if limite and len(produtos_coletados) >= limite:
                 print(f"[INFO] Limite de {limite} produtos atingido.")
                 break
-
-            if not proxima_url:
-                print("[INFO] Não encontrei link para próxima página. Encerrando paginação.")
-                break
-
-            print(f"[INFO] Próxima página encontrada: {proxima_url}")
-
-            url_pagina = proxima_url
 
     finally:
         print("[INFO] Fechando navegador...")
