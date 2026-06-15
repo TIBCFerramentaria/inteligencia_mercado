@@ -590,6 +590,86 @@ def encontrar_url_proxima_pagina(html, url_atual, numero_pagina_atual):
 
     return None
 
+def extrair_dados_detalhe_produto(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    marca_nome = None
+    codigo_produto = None
+
+    # Marca/fornecedor na página do produto
+    seletores_marca = [
+        "table.tit-fornecedor h2.tit-fornecedor a",
+        "h2.tit-fornecedor a",
+        "a[href*='/fornecedor/']",
+    ]
+
+    for seletor in seletores_marca:
+        elemento_marca = soup.select_one(seletor)
+
+        if elemento_marca:
+            marca_nome = normalizar_texto(
+                elemento_marca.get_text(" ", strip=True)
+            )
+
+            if marca_nome:
+                break
+
+    # Código na página do produto
+    elemento_codigo = soup.select_one("a.idCopySKU")
+
+    if elemento_codigo:
+        codigo_produto = (
+            elemento_codigo.get("cod")
+            or elemento_codigo.get_text(" ", strip=True)
+        )
+
+    if not codigo_produto:
+        elemento_codigo_oculto = soup.select_one("#idCopySKUHidden")
+
+        if elemento_codigo_oculto:
+            codigo_produto = elemento_codigo_oculto.get_text(" ", strip=True)
+
+    if codigo_produto:
+        codigo_produto = normalizar_texto(codigo_produto)
+        codigo_produto = codigo_produto.replace(" ", "")
+        codigo_produto = codigo_produto.replace("Cód.", "")
+        codigo_produto = codigo_produto.replace("Cod.", "")
+        codigo_produto = codigo_produto.strip("()")
+
+    return {
+        "marca_nome": marca_nome,
+        "codigo_produto": codigo_produto,
+    }
+
+def enriquecer_produto_com_detalhe(driver, produto, pausa=0.4):
+    url_produto = produto.get("url") or produto.get("url_produto")
+
+    if not url_produto:
+        return produto
+
+    try:
+        driver.get(url_produto)
+        time.sleep(pausa)
+
+        dados_detalhe = extrair_dados_detalhe_produto(driver.page_source)
+
+        marca_nome = dados_detalhe.get("marca_nome")
+        codigo_produto = dados_detalhe.get("codigo_produto")
+
+        if marca_nome:
+            produto["marca_nome"] = marca_nome
+
+        if codigo_produto:
+            produto["codigo_site"] = codigo_produto
+
+            if not produto.get("codigo_fabricante"):
+                produto["codigo_fabricante"] = codigo_produto
+
+    except Exception as erro:
+        print(f"[WARN] Não consegui enriquecer detalhe do produto: {url_produto}")
+        print(f"[WARN] Erro: {erro}")
+
+    return produto
 
 def coletar_produtos_dutra(
     url_base,
@@ -671,6 +751,8 @@ def coletar_produtos_dutra(
             novos_nesta_pagina = 0
 
             for produto in produtos_da_pagina:
+                produto = enriquecer_produto_com_detalhe(driver, produto)
+                
                 url_produto = produto.get("url")
 
                 if not url_produto or url_produto in urls_ja_coletadas:
