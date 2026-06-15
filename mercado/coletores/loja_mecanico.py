@@ -45,73 +45,165 @@ def converter_preco_para_decimal(texto_preco):
         return None
 
 
-def extrair_preco_em_texto(texto):
+def normalizar_texto_monetario(texto):
     if not texto:
-        return None
+        return ""
 
-    # Remove espaços entre R$, valor e centavos.
-    # Exemplo: "R$ 4.789 ,00" vira "R$4.789,00"
     texto = str(texto)
     texto = texto.replace("\xa0", " ")
-    texto = re.sub(r"\s+", "", texto)
+    texto = re.sub(r"\s+", " ", texto)
 
-    preco_encontrado = re.search(
-        r"R\$\d{1,3}(?:\.\d{3})*,\d{2}|R\$\d+,\d{2}",
+    # Normaliza "R$" com espaço padrão.
+    texto = re.sub(r"R\$\s*", "R$ ", texto)
+
+    # Corrige casos como:
+    # R$ 5.321 ,11 -> R$ 5.321,11
+    texto = re.sub(r"(\d)\s+,\s*(\d{2})", r"\1,\2", texto)
+
+    return texto.strip()
+
+
+def encontrar_precos_no_texto(texto):
+    texto = normalizar_texto_monetario(texto)
+
+    return re.findall(
+        r"R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|R\$\s*\d+,\d{2}",
         texto,
     )
 
-    if not preco_encontrado:
+
+def extrair_preco_em_texto(texto):
+    precos = encontrar_precos_no_texto(texto)
+
+    if not precos:
         return None
 
-    return converter_preco_para_decimal(preco_encontrado.group())
+    return converter_preco_para_decimal(precos[0])
+
+
+def extrair_preco_a_vista(bloco_produto):
+    if not hasattr(bloco_produto, "select_one"):
+        return None
+
+    seletores_preco_vista = [
+        ".container__price p.price",
+        "p.price",
+        "div.price",
+        ".price",
+    ]
+
+    for seletor in seletores_preco_vista:
+        elemento_preco = bloco_produto.select_one(seletor)
+
+        if not elemento_preco:
+            continue
+
+        texto_preco = elemento_preco.get_text(" ", strip=True)
+        preco = extrair_preco_em_texto(texto_preco)
+
+        if preco is not None:
+            return preco
+
+    return None
+
+
+def extrair_preco_prazo_e_parcela(bloco_produto):
+    preco_prazo = None
+    quantidade_parcelas = None
+    valor_parcela = None
+
+    if not hasattr(bloco_produto, "select_one"):
+        return preco_prazo, quantidade_parcelas, valor_parcela
+
+    div_parcelamento = bloco_produto.select_one(
+        "div.parcel, .parcel, [class*='parcel']"
+    )
+
+    if not div_parcelamento:
+        return preco_prazo, quantidade_parcelas, valor_parcela
+
+    texto_parcelamento = div_parcelamento.get_text(" ", strip=True)
+    texto_parcelamento = normalizar_texto_monetario(texto_parcelamento)
+
+    precos_encontrados = encontrar_precos_no_texto(texto_parcelamento)
+
+    # Exemplos aceitos:
+    # "ou R$ 5.321,11 em 10x R$ 532,12 sem juros no cartão"
+    # "à vista em 10x R$ 113,90 sem juros no cartão"
+
+    parcelas_match = re.search(
+        r"(\d+)\s*x\s*(?:de\s*)?(R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|R\$\s*\d+,\d{2})",
+        texto_parcelamento,
+        flags=re.IGNORECASE,
+    )
+
+    if parcelas_match:
+        quantidade_parcelas = int(parcelas_match.group(1))
+        valor_parcela = converter_preco_para_decimal(parcelas_match.group(2))
+
+    # Se houver dois preços:
+    # primeiro = preço total a prazo
+    # segundo = valor da parcela
+    if len(precos_encontrados) >= 2:
+        preco_prazo = converter_preco_para_decimal(precos_encontrados[0])
+
+        if valor_parcela is None:
+            valor_parcela = converter_preco_para_decimal(precos_encontrados[1])
+
+    # Se houver só um preço, normalmente ele é o valor da parcela.
+    elif len(precos_encontrados) == 1 and valor_parcela is None:
+        valor_parcela = converter_preco_para_decimal(precos_encontrados[0])
+
+    # Se não houver preço total a prazo, calcula:
+    # preco_prazo = parcelas x valor_parcela
+    if preco_prazo is None and quantidade_parcelas and valor_parcela:
+        preco_prazo = valor_parcela * quantidade_parcelas
+
+    return preco_prazo, quantidade_parcelas, valor_parcela
 
 
 def extrair_precos(bloco_produto):
     preco_atual = None
     preco_antigo = None
 
-    # 1. Primeiro tenta pegar o preço correto à vista dentro da div.price.
-    # Exemplo:
-    # <div class="price mb-3">
-    #     <span>R$</span>4.789<span>,00</span>
-    # </div>
-    if hasattr(bloco_produto, "select_one"):
-        div_preco = bloco_produto.select_one("div.price")
+    # 1. Preço à vista / Pix / boleto.
+    preco_atual = extrair_preco_a_vista(bloco_produto)
 
-        if div_preco:
-            texto_preco_vista = div_preco.get_text("", strip=True)
-            preco_atual = extrair_preco_em_texto(texto_preco_vista)
-
-    # 2. Pega o texto geral do bloco apenas para tentar identificar preço antigo.
+    # 2. Texto geral do card para preço antigo e fallback.
     if hasattr(bloco_produto, "get_text"):
         texto_bloco = bloco_produto.get_text(" ", strip=True)
     else:
         texto_bloco = str(bloco_produto)
 
+    texto_bloco = normalizar_texto_monetario(texto_bloco)
     texto_bloco_upper = texto_bloco.upper()
 
-    # 3. Se existir "DE:", tenta identificar preço antigo.
-    # Aqui tomamos cuidado para não confundir preço a prazo/parcela com preço antigo.
+    # 3. Preço antigo, quando existir "DE:".
     if "DE:" in texto_bloco_upper:
-        precos_encontrados = re.findall(
-            r"R\$\s*[\d\.]+,\d{2}",
-            texto_bloco,
-        )
+        precos_encontrados = encontrar_precos_no_texto(texto_bloco)
 
         if len(precos_encontrados) >= 2:
             preco_antigo = converter_preco_para_decimal(precos_encontrados[0])
 
-            # Só usa o segundo preço como atual se ainda não tiver encontrado a div.price.
             if preco_atual is None:
                 preco_atual = converter_preco_para_decimal(precos_encontrados[1])
 
-    # 4. Fallback: se não achou div.price, pega o primeiro preço encontrado no texto.
-    # Esse fallback é menos confiável, mas evita retornar vazio.
+    # 4. Fallback para preço atual.
     if preco_atual is None:
         preco_atual = extrair_preco_em_texto(texto_bloco)
 
-    return preco_atual, preco_antigo
+    # 5. Preço a prazo e parcelamento.
+    preco_prazo, quantidade_parcelas, valor_parcela = extrair_preco_prazo_e_parcela(
+        bloco_produto
+    )
 
+    return (
+        preco_atual,
+        preco_antigo,
+        preco_prazo,
+        quantidade_parcelas,
+        valor_parcela,
+    )
 
 def extrair_desconto(texto_bloco):
     match = re.search(r"(\d{1,3})\s*%\s*R\$", texto_bloco)
@@ -214,6 +306,34 @@ def parece_titulo_produto(texto):
 
     return any(termo in texto_lower for termo in termos_produto)
 
+def localizar_card_produto(link):
+    atual = link
+
+    for _ in range(10):
+        if not atual:
+            break
+
+        if not hasattr(atual, "get_text"):
+            break
+
+        texto = atual.get_text(" ", strip=True)
+
+        tem_preco = "R$" in texto
+        tem_link_produto = atual.find(
+            "a",
+            href=lambda href: href and "/produto/" in href
+        )
+
+        tem_area_preco = atual.select_one(
+            ".container__price, p.price, div.price, .price, div.parcel, .parcel, [class*='parcel']"
+        )
+
+        if tem_preco and tem_link_produto and tem_area_preco:
+            return atual
+
+        atual = atual.parent
+
+    return link.parent
 
 def montar_mapa_links(soup):
     candidatos = []
@@ -229,14 +349,15 @@ def montar_mapa_links(soup):
             continue
 
         url = limpar_url(urljoin(URL_MAIS_VENDIDOS, href))
+        card_produto = localizar_card_produto(link)
 
         candidatos.append({
             "nome": texto,
             "url": url,
+            "card": card_produto,
         })
 
     return candidatos
-
 
 def localizar_indice_linha(linhas, texto, inicio=0):
     texto_normalizado = normalizar_texto(texto)
@@ -246,7 +367,6 @@ def localizar_indice_linha(linhas, texto, inicio=0):
             return indice
 
     return None
-
 
 def extrair_produtos_do_html(html, limite=None):
     soup = BeautifulSoup(html, "html.parser")
@@ -266,6 +386,7 @@ def extrair_produtos_do_html(html, limite=None):
     for candidato in candidatos:
         nome = candidato["nome"]
         url = candidato["url"]
+        card_produto = candidato.get("card")
 
         chave = nome.upper()
 
@@ -283,16 +404,29 @@ def extrair_produtos_do_html(html, limite=None):
         bloco_linhas = linhas[indice: indice + 18]
         texto_bloco = " ".join(bloco_linhas)
 
-        if "R$" not in texto_bloco:
+        if card_produto and hasattr(card_produto, "get_text"):
+            texto_card = card_produto.get_text(" ", strip=True)
+        else:
+            texto_card = texto_bloco
+
+        texto_para_extracao = texto_card or texto_bloco
+
+        if "R$" not in texto_para_extracao:
             continue
 
-        preco_atual, preco_antigo = extrair_precos(texto_bloco)
+        (
+            preco_atual,
+            preco_antigo,
+            preco_prazo,
+            quantidade_parcelas,
+            valor_parcela,
+        ) = extrair_precos(card_produto if card_produto else texto_para_extracao)
 
         if preco_atual is None:
             continue
 
-        desconto_percentual = extrair_desconto(texto_bloco)
-        nota_media, quantidade_avaliacoes = extrair_nota_avaliacoes(texto_bloco)
+        desconto_percentual = extrair_desconto(texto_para_extracao)
+        nota_media, quantidade_avaliacoes = extrair_nota_avaliacoes(texto_para_extracao)
         marca_nome, codigo_fabricante = extrair_marca_codigo_fabricante(nome)
         codigo_site = extrair_codigo_site(url)
 
@@ -304,6 +438,9 @@ def extrair_produtos_do_html(html, limite=None):
             "codigo_fabricante": codigo_fabricante,
             "preco_atual": preco_atual,
             "preco_antigo": preco_antigo,
+            "preco_prazo": preco_prazo,
+            "quantidade_parcelas": quantidade_parcelas,
+            "valor_parcela": valor_parcela,
             "desconto_percentual": desconto_percentual,
             "nota_media": nota_media,
             "quantidade_avaliacoes": quantidade_avaliacoes,
@@ -470,3 +607,73 @@ def coletar_mais_vendidos(limite=None, max_paginas=20):
 
     print(f"[INFO] Coleta finalizada. Total de produtos coletados: {len(produtos_coletados)}")
     return produtos_coletados
+
+def encontrar_precos_no_texto(texto):
+    texto = normalizar_texto_monetario(texto)
+
+    return re.findall(
+        r"R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|R\$\s*\d+,\d{2}",
+        texto,
+    )
+
+
+def extrair_preco_prazo_e_parcela(bloco_produto):
+    preco_prazo = None
+    quantidade_parcelas = None
+    valor_parcela = None
+
+    if not hasattr(bloco_produto, "select_one"):
+        return preco_prazo, quantidade_parcelas, valor_parcela
+
+    div_parcelamento = bloco_produto.select_one(
+        "div.parcel, .parcel, [class*='parcel']"
+    )
+
+    if not div_parcelamento:
+        return preco_prazo, quantidade_parcelas, valor_parcela
+
+    texto_parcelamento = div_parcelamento.get_text(" ", strip=True)
+    texto_parcelamento = normalizar_texto_monetario(texto_parcelamento)
+
+    # Exemplo 1:
+    # "já com 10% de desconto à vista no Pix ou boleto ou R$ 5.321,11 em até 10x de R$ 532,11"
+    #
+    # Exemplo 2:
+    # "à vista em 10x R$ 113,90 sem juros no cartão"
+
+    precos_encontrados = encontrar_precos_no_texto(texto_parcelamento)
+
+    # Busca quantidade de parcelas + valor da parcela.
+    # Aceita:
+    # 10x de R$ 532,11
+    # 10x R$ 113,90
+    parcelas_match = re.search(
+        r"(\d+)\s*x\s*(?:de\s*)?(R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|R\$\s*\d+,\d{2})",
+        texto_parcelamento,
+        flags=re.IGNORECASE,
+    )
+
+    if parcelas_match:
+        quantidade_parcelas = int(parcelas_match.group(1))
+        valor_parcela = converter_preco_para_decimal(parcelas_match.group(2))
+
+    # Se houver dois preços na div.parcel:
+    # primeiro = preço total a prazo
+    # segundo = valor da parcela
+    if len(precos_encontrados) >= 2:
+        preco_prazo = converter_preco_para_decimal(precos_encontrados[0])
+
+        if valor_parcela is None:
+            valor_parcela = converter_preco_para_decimal(precos_encontrados[1])
+
+    # Se houver só um preço e ele veio junto do parcelamento,
+    # esse preço é o valor da parcela.
+    elif len(precos_encontrados) == 1 and valor_parcela is None:
+        valor_parcela = converter_preco_para_decimal(precos_encontrados[0])
+
+    # Quando o site não informa o preço total a prazo,
+    # calculamos pelo parcelamento.
+    if preco_prazo is None and quantidade_parcelas and valor_parcela:
+        preco_prazo = valor_parcela * quantidade_parcelas
+
+    return preco_prazo, quantidade_parcelas, valor_parcela

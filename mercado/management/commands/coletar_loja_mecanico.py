@@ -106,6 +106,9 @@ class Command(BaseCommand):
                     self.stdout.write(f"Preço atual: {produto.get('preco_atual')}")
                     self.stdout.write(f"Preço antigo: {produto.get('preco_antigo')}")
                     self.stdout.write(f"Desconto: {produto.get('desconto_percentual')}")
+                    self.stdout.write(f"Preço a prazo: {produto.get('preco_prazo')}")
+                    self.stdout.write(f"Parcelas: {produto.get('quantidade_parcelas')}")
+                    self.stdout.write(f"Valor parcela: {produto.get('valor_parcela')}")
                     self.stdout.write(f"Nota: {produto.get('nota_media')}")
                     self.stdout.write(f"Avaliações: {produto.get('quantidade_avaliacoes')}")
                     self.stdout.write(f"URL: {produto.get('url')}")
@@ -158,6 +161,9 @@ class Command(BaseCommand):
                     produto=produto,
                     preco_atual=item.get("preco_atual"),
                     preco_antigo=item.get("preco_antigo"),
+                    preco_prazo=item.get("preco_prazo"),
+                    quantidade_parcelas=item.get("quantidade_parcelas"),
+                    valor_parcela=item.get("valor_parcela"),
                     desconto_percentual=item.get("desconto_percentual"),
                     nota_media=item.get("nota_media"),
                     quantidade_avaliacoes=item.get("quantidade_avaliacoes"),

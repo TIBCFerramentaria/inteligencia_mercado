@@ -287,6 +287,28 @@ class ColetaProduto(models.Model):
         null=True
     )
 
+    preco_prazo = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Preço total a prazo/cartão, quando informado no site.",
+    )
+
+    quantidade_parcelas = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text="Quantidade máxima de parcelas informada no site.",
+    )
+
+    valor_parcela = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Valor da parcela informada no site.",
+    )
+
     desconto_percentual = models.DecimalField(
         max_digits=6,
         decimal_places=2,
