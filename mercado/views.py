@@ -256,129 +256,128 @@ def ranking_mercado(request):
 
     return render(request, "mercado/ranking_mercado.html", contexto)
 
-def precos_referencias(request):
-    coletas = ColetaProduto.objects.select_related(
+def obter_nome_referencia(referencia, produtos_vinculados=None):
+    campos_possiveis = [
+        "nome",
+        "nome_produto",
+        "nome_referencia",
+        "descricao",
+        "descricao_produto",
+        "descricao_completa",
+        "titulo",
         "produto",
-        "produto__site",
-        "produto__marca",
-        "produto__categoria",
-        "produto__produto_referencia",
-        "produto__produto_referencia__marca",
-        "produto__produto_referencia__categoria",
-        "produto__produto_referencia__fabricante_importador",
-    ).filter(
-        produto__produto_referencia__isnull=False,
-        preco_atual__isnull=False,
-    )
+        "nome_original",
+    ]
 
+    for campo in campos_possiveis:
+        valor = getattr(referencia, campo, None)
+
+        if valor:
+            valor = str(valor).strip()
+
+            if valor:
+                return valor
+
+    if produtos_vinculados is not None:
+        produto_coletado = produtos_vinculados.first()
+
+        if produto_coletado and produto_coletado.nome_original:
+            return produto_coletado.nome_original
+
+    return "Produto referência sem nome"
+
+def precos_referencias(request):
     busca = request.GET.get("busca", "")
-    site_id = request.GET.get("site", "")
-    marca_id = request.GET.get("marca", "")
-    categoria_id = request.GET.get("categoria", "")
-    data_inicio = request.GET.get("data_inicio", "")
-    data_fim = request.GET.get("data_fim", "")
+
+    referencias = ProdutoReferencia.objects.all()
 
     if busca:
-        coletas = coletas.filter(
-            Q(produto__produto_referencia__nome_referencia__icontains=busca)
-            | Q(produto__produto_referencia__codigo_fabricante__icontains=busca)
-            | Q(produto__produto_referencia__ean__icontains=busca)
-            | Q(produto__nome_original__icontains=busca)
-            | Q(produto__codigo_fabricante__icontains=busca)
-            | Q(produto__ean__icontains=busca)
+        referencias = referencias.filter(
+            Q(nome__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
         )
 
-    if site_id:
-        coletas = coletas.filter(produto__site_id=site_id)
+    linhas = []
 
-    if marca_id:
-        coletas = coletas.filter(produto__produto_referencia__marca_id=marca_id)
+    for referencia in referencias:
+        produtos_vinculados = ProdutoColetado.objects.filter(
+            produto_referencia=referencia,
+            ativo=True,
+        )
 
-    if categoria_id:
-        coletas = coletas.filter(produto__produto_referencia__categoria_id=categoria_id)
+        coletas = []
 
-    if data_inicio:
-        coletas = coletas.filter(data_coleta__date__gte=data_inicio)
+        for produto in produtos_vinculados:
+            ultima_coleta = produto.coletas.order_by("-data_coleta").first()
 
-    if data_fim:
-        coletas = coletas.filter(data_coleta__date__lte=data_fim)
+            if ultima_coleta:
+                coletas.append(ultima_coleta)
 
-    grupos = {}
+        if not coletas:
+            continue
 
-    for coleta in coletas.order_by("produto__produto_referencia__nome_referencia", "data_coleta"):
-        referencia = coleta.produto.produto_referencia
-        preco = float(coleta.preco_atual)
+        precos_vista = [
+            coleta.preco_atual
+            for coleta in coletas
+            if coleta.preco_atual is not None
+        ]
 
-        if referencia.id not in grupos:
-            grupos[referencia.id] = {
-                "referencia": referencia,
-                "marca": referencia.marca.nome if referencia.marca else "-",
-                "fabricante": (
-                    referencia.fabricante_importador.nome
-                    if referencia.fabricante_importador
-                    else "-"
-                ),
-                "categoria": referencia.categoria.nome if referencia.categoria else "-",
-                "sites": set(),
-                "qtd_coletas": 0,
-                "soma_precos": 0,
-                "menor_preco": preco,
-                "maior_preco": preco,
-                "site_menor_preco": coleta.produto.site.nome,
-                "site_maior_preco": coleta.produto.site.nome,
-                "ultima_coleta": coleta.data_coleta,
-            }
+        precos_prazo = [
+            coleta.preco_prazo
+            for coleta in coletas
+            if coleta.preco_prazo is not None
+        ]
 
-        grupo = grupos[referencia.id]
+        if not precos_vista:
+            continue
 
-        grupo["sites"].add(coleta.produto.site.nome)
-        grupo["qtd_coletas"] += 1
-        grupo["soma_precos"] += preco
+        menor_preco_vista = min(precos_vista)
+        maior_preco_vista = max(precos_vista)
+        preco_medio_vista = sum(precos_vista) / len(precos_vista)
 
-        if preco < grupo["menor_preco"]:
-            grupo["menor_preco"] = preco
-            grupo["site_menor_preco"] = coleta.produto.site.nome
+        preco_medio_prazo = None
+        diferenca_media_prazo_vista = None
 
-        if preco > grupo["maior_preco"]:
-            grupo["maior_preco"] = preco
-            grupo["site_maior_preco"] = coleta.produto.site.nome
+        if precos_prazo:
+            preco_medio_prazo = sum(precos_prazo) / len(precos_prazo)
+            diferenca_media_prazo_vista = calcular_diferenca_prazo_vista(
+                preco_medio_vista,
+                preco_medio_prazo,
+            )
 
-        if coleta.data_coleta > grupo["ultima_coleta"]:
-            grupo["ultima_coleta"] = coleta.data_coleta
+        ultima_data_coleta = max(
+            coleta.data_coleta
+            for coleta in coletas
+            if coleta.data_coleta
+        )
 
-    resultado = []
+        nome_referencia = obter_nome_referencia(
+            referencia,
+            produtos_vinculados,
+        )
 
-    for grupo in grupos.values():
-        preco_medio = grupo["soma_precos"] / grupo["qtd_coletas"]
+        linhas.append({
+            "referencia": referencia,
+            "nome_referencia": nome_referencia,
+            "qtd_produtos_vinculados": produtos_vinculados.count(),
+            "qtd_coletas": len(coletas),
+            "menor_preco_vista": menor_preco_vista,
+            "maior_preco_vista": maior_preco_vista,
+            "preco_medio_vista": preco_medio_vista,
+            "preco_medio_prazo": preco_medio_prazo,
+            "diferenca_media_prazo_vista": diferenca_media_prazo_vista,
+            "ultima_data_coleta": ultima_data_coleta,
+        })
 
-        variacao_percentual = 0
-        if grupo["menor_preco"] > 0:
-            variacao_percentual = (
-                (grupo["maior_preco"] - grupo["menor_preco"])
-                / grupo["menor_preco"]
-            ) * 100
-
-        grupo["preco_medio"] = preco_medio
-        grupo["variacao_percentual"] = variacao_percentual
-        grupo["sites_texto"] = ", ".join(sorted(grupo["sites"]))
-
-        resultado.append(grupo)
-
-    resultado.sort(key=lambda item: item["preco_medio"], reverse=True)
+    linhas.sort(
+        key=lambda item: item["preco_medio_vista"] if item["preco_medio_vista"] is not None else Decimal("999999999")
+    )
 
     contexto = {
-    "resultados": resultado,
-    "total_resultados": len(resultado),
-    "sites": SiteMonitorado.objects.all(),
-    "marcas": Marca.objects.all(),
-    "categorias": Categoria.objects.all(),
-    "busca": busca,
-    "site_id": site_id,
-    "marca_id": marca_id,
-    "categoria_id": categoria_id,
-    "data_inicio": data_inicio,
-    "data_fim": data_fim,
-    "query_string": request.GET.urlencode(),
+        "linhas": linhas,
+        "total_referencias": len(linhas),
+        "busca": busca,
     }
 
     return render(request, "mercado/precos_referencias.html", contexto)

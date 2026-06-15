@@ -7,274 +7,208 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 30px;
+            margin: 24px;
             background-color: #f5f5f5;
             color: #222;
         }
 
         h1 {
-            margin-bottom: 5px;
+            margin-bottom: 8px;
         }
 
-        .subtitulo {
-            color: #666;
-            margin-bottom: 25px;
-        }
-
-        .menu {
-            margin-bottom: 25px;
-        }
-
-        .menu a {
-            background: #222;
-            color: white;
-            padding: 10px 14px;
-            text-decoration: none;
-            border-radius: 5px;
-            margin-right: 8px;
-        }
-
-        .filtros {
-            background: white;
-            padding: 18px;
-            border-radius: 8px;
-            margin-bottom: 25px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-        }
-
-        .filtros form {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: end;
-        }
-
-        .campo {
-            display: flex;
-            flex-direction: column;
-        }
-
-        label {
-            font-size: 13px;
-            margin-bottom: 5px;
+        .descricao {
+            margin-bottom: 20px;
             color: #555;
         }
 
-        input, select {
+        .menu {
+            margin-bottom: 20px;
+        }
+
+        .menu a {
+            margin-right: 12px;
+            text-decoration: none;
+            color: #0b5ed7;
+            font-weight: bold;
+        }
+
+        form {
+            margin-bottom: 20px;
+            padding: 12px;
+            background-color: #ffffff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        input[type="text"] {
             padding: 8px;
-            min-width: 180px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
+            width: 320px;
+            max-width: 100%;
         }
 
         button {
-            background: #222;
-            color: white;
-            padding: 9px 16px;
-            border: none;
-            border-radius: 5px;
+            padding: 8px 14px;
             cursor: pointer;
+        }
+
+        .resumo {
+            margin-bottom: 16px;
+            padding: 12px;
+            background-color: #ffffff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
         }
 
         table {
             width: 100%;
-            background: white;
             border-collapse: collapse;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-            font-size: 14px;
+            background-color: #ffffff;
         }
 
         th, td {
-            padding: 11px;
-            border-bottom: 1px solid #ddd;
-            text-align: left;
+            border: 1px solid #ddd;
+            padding: 8px;
             vertical-align: top;
+            font-size: 14px;
         }
 
         th {
-            background: #222;
-            color: white;
+            background-color: #eeeeee;
+            text-align: left;
         }
 
-        .contador {
-            margin-bottom: 10px;
-            color: #555;
+        tr:nth-child(even) {
+            background-color: #fafafa;
         }
 
-        .preco-medio {
-            font-weight: bold;
-            color: #0056b3;
+        small {
+            color: #666;
         }
 
-        .variacao-baixa {
-            color: green;
-            font-weight: bold;
-        }
-
-        .variacao-media {
-            color: #b8860b;
-            font-weight: bold;
-        }
-
-        .variacao-alta {
-            color: red;
-            font-weight: bold;
-        }
-
-        .aviso {
-            background: #e7f3ff;
-            border: 1px solid #b6dcff;
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 25px;
+        .valor {
+            white-space: nowrap;
         }
     </style>
 </head>
+
 <body>
 
-    <h1>Preço médio por produto referência</h1>
-    <p class="subtitulo">
-        Análise de menor preço, preço médio e maior preço por produto validado em fonte oficial.
-    </p>
-
- <div class="menu">
+    <div class="menu">
         <a href="/">Dashboard</a>
-        <a href="/ranking/">Ranking de mercado</a>
-        <a href="/validacao/">Pendentes de validação</a>
-        <a href="/validacao/sugestoes/">Sugestões de vínculo</a>
-        <a href="/marcas/">Força de marcas</a>
+        <a href="/ranking/">Ranking</a>
+        <a href="/marcas/">Força marcas</a>
         <a href="/precos/">Preço médio</a>
-        <a href="/produtos/">Produtos monitorados</a>
-        <a href="/referencias/">Produtos referência</a>
-        <a href="/referencias/importar/">Importar referências</a>
-        <a href="/admin/">Painel Admin</a>
+        <a href="/admin/">Admin</a>
     </div>
 
-    <div class="aviso">
-        Esta análise considera apenas produtos coletados que estejam vinculados a um Produto Referência.
-        Isso evita comparar itens parecidos, mas tecnicamente diferentes.
-    </div>
+    <h1>Preço médio por produto referência</h1>
 
-    <div class="filtros">
-        <form method="get">
-            <div class="campo">
-                <label>Buscar produto, código ou EAN</label>
-                <input type="text" name="busca" value="{{ busca }}" placeholder="Ex: Bosch, GSB13RE, EAN...">
-            </div>
-
-            <div class="campo">
-                <label>Site</label>
-                <select name="site">
-                    <option value="">Todos</option>
-                    {% for site in sites %}
-                        <option value="{{ site.id }}" {% if site_id == site.id|stringformat:"s" %}selected{% endif %}>
-                            {{ site.nome }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="campo">
-                <label>Marca</label>
-                <select name="marca">
-                    <option value="">Todas</option>
-                    {% for marca in marcas %}
-                        <option value="{{ marca.id }}" {% if marca_id == marca.id|stringformat:"s" %}selected{% endif %}>
-                            {{ marca.nome }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="campo">
-                <label>Categoria</label>
-                <select name="categoria">
-                    <option value="">Todas</option>
-                    {% for categoria in categorias %}
-                        <option value="{{ categoria.id }}" {% if categoria_id == categoria.id|stringformat:"s" %}selected{% endif %}>
-                            {{ categoria.nome }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="campo">
-                <label>Data início</label>
-                <input type="date" name="data_inicio" value="{{ data_inicio }}">
-            </div>
-
-            <div class="campo">
-                <label>Data fim</label>
-                <input type="date" name="data_fim" value="{{ data_fim }}">
-            </div>
-
-            <button type="submit">Filtrar</button>
-        </form>
-    </div>
-
-    <p class="contador">
-        Total de produtos referência analisados: {{ total_resultados }}
+    <p class="descricao">
+        Esta tela compara os produtos coletados que já foram vinculados a um produto referência.
+        O preço médio à vista considera Pix/boleto. O preço médio a prazo considera o preço total parcelado no cartão.
     </p>
-    <p>
-        <a href="/precos/exportar/?{{ query_string }}" style="background:#0056b3; color:white; padding:10px 14px; text-decoration:none; border-radius:5px;">
-         Exportar Excel
-        </a>
-    </p>
-    
+
+    <form method="get">
+        <input
+            type="text"
+            name="busca"
+            placeholder="Buscar por nome, código fabricante ou EAN"
+            value="{{ busca }}"
+        >
+
+        <button type="submit">Filtrar</button>
+        <a href="/precos/">Limpar</a>
+    </form>
+
+    <div class="resumo">
+        <strong>Total de referências com preço:</strong> {{ total_referencias }}
+    </div>
+
     <table>
         <thead>
             <tr>
                 <th>Produto referência</th>
-                <th>Marca</th>
-                <th>Fabricante / Importador</th>
-                <th>Categoria</th>
-                <th>Sites</th>
-                <th>Coletas</th>
-                <th>Menor preço</th>
-                <th>Site menor preço</th>
-                <th>Preço médio</th>
-                <th>Maior preço</th>
-                <th>Site maior preço</th>
-                <th>Variação</th>
+                <th>Qtd. produtos vinculados</th>
+                <th>Qtd. coletas usadas</th>
+                <th>Menor preço à vista</th>
+                <th>Maior preço à vista</th>
+                <th>Preço médio à vista</th>
+                <th>Preço médio a prazo</th>
+                <th>Dif. média prazo x vista</th>
                 <th>Última coleta</th>
             </tr>
         </thead>
+
         <tbody>
-            {% for item in resultados %}
+            {% for item in linhas %}
                 <tr>
-                    <td>{{ item.referencia.nome_referencia }}</td>
-                    <td>{{ item.marca }}</td>
-                    <td>{{ item.fabricante }}</td>
-                    <td>{{ item.categoria }}</td>
-                    <td>{{ item.sites_texto }}</td>
-                    <td>{{ item.qtd_coletas }}</td>
-
-                    <td>R$ {{ item.menor_preco|floatformat:2 }}</td>
-                    <td>{{ item.site_menor_preco }}</td>
-
-                    <td class="preco-medio">
-                        R$ {{ item.preco_medio|floatformat:2 }}
+                    <td>
+                        <strong>{{ item.nome_referencia }}</strong>
+                        <br>
+                        <small>
+                            Código fabricante:
+                            {{ item.referencia.codigo_fabricante|default:"-" }}
+                            <br>
+                            EAN:
+                            {{ item.referencia.ean|default:"-" }}
+                        </small>
                     </td>
 
-                    <td>R$ {{ item.maior_preco|floatformat:2 }}</td>
-                    <td>{{ item.site_maior_preco }}</td>
+                    <td>{{ item.qtd_produtos_vinculados }}</td>
+                    <td>{{ item.qtd_coletas }}</td>
 
-                    <td>
-                        {% if item.variacao_percentual <= 10 %}
-                            <span class="variacao-baixa">{{ item.variacao_percentual|floatformat:2 }}%</span>
-                        {% elif item.variacao_percentual <= 25 %}
-                            <span class="variacao-media">{{ item.variacao_percentual|floatformat:2 }}%</span>
+                    <td class="valor">
+                        {% if item.menor_preco_vista %}
+                            R$ {{ item.menor_preco_vista|floatformat:2 }}
                         {% else %}
-                            <span class="variacao-alta">{{ item.variacao_percentual|floatformat:2 }}%</span>
+                            -
                         {% endif %}
                     </td>
 
-                    <td>{{ item.ultima_coleta|date:"d/m/Y H:i" }}</td>
+                    <td class="valor">
+                        {% if item.maior_preco_vista %}
+                            R$ {{ item.maior_preco_vista|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td class="valor">
+                        {% if item.preco_medio_vista %}
+                            R$ {{ item.preco_medio_vista|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td class="valor">
+                        {% if item.preco_medio_prazo %}
+                            R$ {{ item.preco_medio_prazo|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if item.diferenca_media_prazo_vista is not None %}
+                            {{ item.diferenca_media_prazo_vista|floatformat:2 }}%
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if item.ultima_data_coleta %}
+                            {{ item.ultima_data_coleta|date:"d/m/Y H:i" }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="13">
-                        Nenhum produto referência com preço encontrado para os filtros selecionados.
+                    <td colspan="9">
+                        Nenhum produto referência com coletas vinculadas foi encontrado.
                     </td>
                 </tr>
             {% endfor %}
