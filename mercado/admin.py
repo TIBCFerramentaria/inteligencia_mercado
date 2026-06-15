@@ -7,6 +7,7 @@ from .models import (
     ProdutoReferencia,
     ProdutoColetado,
     ColetaProduto,
+    ExecucaoColeta,
 )
 
 
@@ -120,3 +121,47 @@ class ColetaProdutoAdmin(admin.ModelAdmin):
         "produto__ean",
     )
     list_filter = ("produto__site", "disponivel", "data_coleta")
+
+@admin.register(ExecucaoColeta)
+class ExecucaoColetaAdmin(admin.ModelAdmin):
+    list_display = [
+        "data_inicio",
+        "data_fim",
+        "site",
+        "tipo_coleta",
+        "nome_fonte",
+        "status",
+        "dry_run",
+        "limite_solicitado",
+        "max_paginas",
+        "produtos_encontrados",
+        "produtos_novos",
+        "produtos_atualizados",
+        "coletas_gravadas",
+        "duracao_segundos",
+    ]
+
+    list_filter = [
+        "status",
+        "tipo_coleta",
+        "dry_run",
+        "site",
+        "data_inicio",
+    ]
+
+    search_fields = [
+        "nome_fonte",
+        "url_base",
+        "mensagem_erro",
+        "site__nome",
+    ]
+
+    readonly_fields = [
+        "data_inicio",
+        "data_fim",
+        "criado_em",
+        "atualizado_em",
+        "duracao_segundos",
+    ]
+
+    ordering = ["-data_inicio"]

@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from mercado.coletores.loja_mecanico import coletar_mais_vendidos
 from mercado.models import (
@@ -7,6 +8,7 @@ from mercado.models import (
     Marca,
     ProdutoColetado,
     ColetaProduto,
+    ExecucaoColeta,
 )
 
 
@@ -22,10 +24,10 @@ class Command(BaseCommand):
         )
 
         parser.add_argument(
-            "--max-paginas", 
-            type=int, 
+            "--max-paginas",
+            type=int,
             default=20,
-            help="Quantidade máxima de paginas a coletar.",
+            help="Quantidade máxima de páginas a coletar.",
         )
 
         parser.add_argument(
@@ -38,42 +40,8 @@ class Command(BaseCommand):
         limite = options["limite"]
         dry_run = options["dry_run"]
         max_paginas = options["max_paginas"]
-        
 
-        self.stdout.write(
-                f"Iniciando coleta da Loja do Mecânico. "
-                f"Limite: {limite}. "
-                f"Máximo de páginas: {max_paginas}. "
-                f"Dry-run: {dry_run}"
-        )
-
-        produtos = coletar_mais_vendidos(limite=limite, max_paginas=max_paginas)
-
-        self.stdout.write(
-            self.style.SUCCESS(f"Produtos encontrados: {len(produtos)}")
-        )
-
-        if dry_run:
-            for produto in produtos:
-                self.stdout.write("-" * 80)
-                self.stdout.write(f"Ranking: {produto['ranking_geral']}")
-                self.stdout.write(f"Nome: {produto['nome_original']}")
-                self.stdout.write(f"Marca: {produto['marca_nome']}")
-                self.stdout.write(f"Código fabricante: {produto['codigo_fabricante']}")
-                self.stdout.write(f"Código site: {produto['codigo_site']}")
-                self.stdout.write(f"Preço atual: {produto['preco_atual']}")
-                self.stdout.write(f"Preço antigo: {produto['preco_antigo']}")
-                self.stdout.write(f"Desconto: {produto['desconto_percentual']}")
-                self.stdout.write(f"Nota: {produto['nota_media']}")
-                self.stdout.write(f"Avaliações: {produto['quantidade_avaliacoes']}")
-                self.stdout.write(f"URL: {produto['url']}")
-
-            self.stdout.write(
-                self.style.WARNING("Dry-run finalizado. Nada foi salvo no banco.")
-            )
-            return
-
-        site, _criado = SiteMonitorado.objects.get_or_create(
+        site, _criado_site = SiteMonitorado.objects.get_or_create(
             nome="Loja do Mecânico",
             defaults={
                 "url_base": "https://www.lojadomecanico.com.br",
@@ -82,55 +50,154 @@ class Command(BaseCommand):
             },
         )
 
-        categoria, _criado = Categoria.objects.get_or_create(
-            nome="Mais vendidos - Loja do Mecânico"
+        execucao = ExecucaoColeta.objects.create(
+            site=site,
+            tipo_coleta="MAIS_VENDIDOS",
+            nome_fonte="Mais vendidos",
+            url_base="https://www.lojadomecanico.com.br/hotsite/maisvendidos",
+            limite_solicitado=limite,
+            max_paginas=max_paginas,
+            dry_run=dry_run,
+            status="EM_EXECUCAO",
         )
 
-        total_salvos = 0
-        total_coletas = 0
+        produtos_novos = 0
+        produtos_atualizados = 0
+        coletas_gravadas = 0
 
-        for item in produtos:
-            marca = None
+        try:
+            self.stdout.write(
+                f"Iniciando coleta da Loja do Mecânico. "
+                f"Limite: {limite}. "
+                f"Máximo de páginas: {max_paginas}. "
+                f"Dry-run: {dry_run}"
+            )
 
-            if item["marca_nome"]:
-                marca, _criado = Marca.objects.get_or_create(
-                    nome=item["marca_nome"].upper()
+            produtos = coletar_mais_vendidos(
+                limite=limite,
+                max_paginas=max_paginas,
+            )
+
+            execucao.produtos_encontrados = len(produtos)
+            execucao.save()
+
+            self.stdout.write(
+                self.style.SUCCESS(f"Produtos encontrados: {len(produtos)}")
+            )
+
+            if not produtos:
+                execucao.status = "SEM_DADOS"
+                execucao.data_fim = timezone.now()
+                execucao.save()
+
+                self.stdout.write(
+                    self.style.WARNING("Nenhum produto encontrado na coleta.")
+                )
+                return
+
+            if dry_run:
+                for produto in produtos:
+                    self.stdout.write("-" * 80)
+                    self.stdout.write(f"Ranking: {produto.get('ranking_geral')}")
+                    self.stdout.write(f"Nome: {produto.get('nome_original')}")
+                    self.stdout.write(f"Marca: {produto.get('marca_nome')}")
+                    self.stdout.write(f"Código fabricante: {produto.get('codigo_fabricante')}")
+                    self.stdout.write(f"Código site: {produto.get('codigo_site')}")
+                    self.stdout.write(f"Preço atual: {produto.get('preco_atual')}")
+                    self.stdout.write(f"Preço antigo: {produto.get('preco_antigo')}")
+                    self.stdout.write(f"Desconto: {produto.get('desconto_percentual')}")
+                    self.stdout.write(f"Nota: {produto.get('nota_media')}")
+                    self.stdout.write(f"Avaliações: {produto.get('quantidade_avaliacoes')}")
+                    self.stdout.write(f"URL: {produto.get('url')}")
+
+                execucao.status = "SUCESSO"
+                execucao.data_fim = timezone.now()
+                execucao.produtos_novos = 0
+                execucao.produtos_atualizados = 0
+                execucao.coletas_gravadas = 0
+                execucao.save()
+
+                self.stdout.write(
+                    self.style.WARNING("Dry-run finalizado. Nada foi salvo no banco.")
+                )
+                return
+
+            categoria, _criado_categoria = Categoria.objects.get_or_create(
+                nome="Mais vendidos - Loja do Mecânico"
+            )
+
+            for item in produtos:
+                marca = None
+                marca_nome = item.get("marca_nome")
+
+                if marca_nome:
+                    marca, _criado_marca = Marca.objects.get_or_create(
+                        nome=marca_nome.upper()
+                    )
+
+                produto, criado = ProdutoColetado.objects.update_or_create(
+                    site=site,
+                    url=item.get("url"),
+                    defaults={
+                        "categoria": categoria,
+                        "marca": marca,
+                        "nome_original": item.get("nome_original"),
+                        "codigo_site": item.get("codigo_site"),
+                        "codigo_fabricante": item.get("codigo_fabricante"),
+                        "ean": item.get("ean"),
+                        "ativo": True,
+                    },
                 )
 
-            produto, _criado = ProdutoColetado.objects.update_or_create(
-                site=site,
-                url=item["url"],
-                defaults={
-                    "categoria": categoria,
-                    "marca": marca,
-                    "nome_original": item["nome_original"],
-                    "codigo_site": item["codigo_site"],
-                    "codigo_fabricante": item["codigo_fabricante"],
-                    "ean": None,
-                    "status_vinculo": "PENDENTE",
-                    "ativo": True,
-                },
+                if criado:
+                    produtos_novos += 1
+                else:
+                    produtos_atualizados += 1
+
+                ColetaProduto.objects.create(
+                    produto=produto,
+                    preco_atual=item.get("preco_atual"),
+                    preco_antigo=item.get("preco_antigo"),
+                    desconto_percentual=item.get("desconto_percentual"),
+                    nota_media=item.get("nota_media"),
+                    quantidade_avaliacoes=item.get("quantidade_avaliacoes"),
+                    ranking_geral=item.get("ranking_geral"),
+                    ranking_categoria=item.get("ranking_categoria"),
+                    disponivel=item.get("disponivel", True),
+                    texto_disponibilidade=item.get("texto_disponibilidade"),
+                    observacao="Coleta automática da página pública de mais vendidos.",
+                )
+
+                coletas_gravadas += 1
+
+            execucao.produtos_novos = produtos_novos
+            execucao.produtos_atualizados = produtos_atualizados
+            execucao.coletas_gravadas = coletas_gravadas
+            execucao.status = "SUCESSO"
+            execucao.data_fim = timezone.now()
+            execucao.save()
+
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Coleta concluída. "
+                    f"Produtos encontrados: {len(produtos)}. "
+                    f"Produtos novos: {produtos_novos}. "
+                    f"Produtos atualizados: {produtos_atualizados}. "
+                    f"Coletas criadas: {coletas_gravadas}."
+                )
             )
 
-            ColetaProduto.objects.create(
-                produto=produto,
-                preco_atual=item["preco_atual"],
-                preco_antigo=item["preco_antigo"],
-                desconto_percentual=item["desconto_percentual"],
-                nota_media=item["nota_media"],
-                quantidade_avaliacoes=item["quantidade_avaliacoes"],
-                ranking_geral=item["ranking_geral"],
-                ranking_categoria=None,
-                disponivel=item["disponivel"],
-                texto_disponibilidade=item["texto_disponibilidade"],
-                observacao="Coleta automática da página pública de mais vendidos.",
+        except Exception as erro:
+            execucao.status = "ERRO"
+            execucao.data_fim = timezone.now()
+            execucao.mensagem_erro = str(erro)
+            execucao.produtos_novos = produtos_novos
+            execucao.produtos_atualizados = produtos_atualizados
+            execucao.coletas_gravadas = coletas_gravadas
+            execucao.save()
+
+            self.stdout.write(
+                self.style.ERROR(f"Erro durante a coleta: {erro}")
             )
 
-            total_salvos += 1
-            total_coletas += 1
-
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Coleta concluída. Produtos processados: {total_salvos}. Coletas criadas: {total_coletas}."
-            )
-        )
+            raise

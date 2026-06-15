@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class SiteMonitorado(models.Model):
@@ -317,3 +318,115 @@ class ColetaProduto(models.Model):
 
     def __str__(self):
         return f"{self.produto} - {self.data_coleta.strftime('%d/%m/%Y %H:%M')}"
+    
+class ExecucaoColeta(models.Model):
+    STATUS_CHOICES = [
+        ("EM_EXECUCAO", "Em execução"),
+        ("SUCESSO", "Sucesso"),
+        ("ERRO", "Erro"),
+        ("SEM_DADOS", "Sem dados"),
+    ]
+
+    TIPO_COLETA_CHOICES = [
+        ("MAIS_VENDIDOS", "Mais vendidos"),
+        ("CATEGORIA", "Categoria"),
+        ("BUSCA", "Busca"),
+        ("OUTRA", "Outra"),
+    ]
+
+    site = models.ForeignKey(
+        SiteMonitorado,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="execucoes_coleta",
+    )
+
+    tipo_coleta = models.CharField(
+        max_length=30,
+        choices=TIPO_COLETA_CHOICES,
+        default="MAIS_VENDIDOS",
+    )
+
+    nome_fonte = models.CharField(
+        max_length=200,
+        default="Mais vendidos",
+    )
+
+    url_base = models.URLField(
+        max_length=1000,
+        blank=True,
+        null=True,
+    )
+
+    data_inicio = models.DateTimeField(
+        default=timezone.now,
+    )
+
+    data_fim = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    limite_solicitado = models.IntegerField(
+        blank=True,
+        null=True,
+    )
+
+    max_paginas = models.IntegerField(
+        blank=True,
+        null=True,
+    )
+
+    paginas_processadas = models.IntegerField(
+        default=0,
+    )
+
+    produtos_encontrados = models.IntegerField(
+        default=0,
+    )
+
+    produtos_novos = models.IntegerField(
+        default=0,
+    )
+
+    produtos_atualizados = models.IntegerField(
+        default=0,
+    )
+
+    coletas_gravadas = models.IntegerField(
+        default=0,
+    )
+
+    dry_run = models.BooleanField(
+        default=False,
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=STATUS_CHOICES,
+        default="EM_EXECUCAO",
+    )
+
+    mensagem_erro = models.TextField(
+        blank=True,
+        null=True,
+    )
+
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Execução de coleta"
+        verbose_name_plural = "Execuções de coleta"
+        ordering = ["-data_inicio"]
+
+    def __str__(self):
+        return f"{self.nome_fonte} - {self.get_status_display()} - {self.data_inicio.strftime('%d/%m/%Y %H:%M')}"
+
+    @property
+    def duracao_segundos(self):
+        if not self.data_inicio or not self.data_fim:
+            return None
+
+        return round((self.data_fim - self.data_inicio).total_seconds(), 2)
