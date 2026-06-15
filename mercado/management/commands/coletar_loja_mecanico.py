@@ -35,11 +35,26 @@ class Command(BaseCommand):
             action="store_true",
             help="Apenas mostra os produtos encontrados, sem salvar no banco.",
         )
+        parser.add_argument(
+            "--url",
+            type=str,
+            default=None,
+            help="URL base da página de produtos da Loja do Mecânico.",
+        )
+
+        parser.add_argument(
+            "--fonte",
+            type=str,
+            default=None,
+            help="Nome descritivo da fonte coletada. Exemplo: Furadeiras, Solda, Ferramentas manuais.",
+        )
 
     def handle(self, *args, **options):
         limite = options["limite"]
         dry_run = options["dry_run"]
         max_paginas = options["max_paginas"]
+        url_base = options.get("url")
+        nome_fonte = options.get("fonte")
 
         site, _criado_site = SiteMonitorado.objects.get_or_create(
             nome="Loja do Mecânico",
@@ -68,6 +83,8 @@ class Command(BaseCommand):
         try:
             self.stdout.write(
                 f"Iniciando coleta da Loja do Mecânico. "
+                f"Fonte: {nome_fonte or 'Mais vendidos'}. "
+                f"URL: {url_base or 'Mais vendidos padrão'}. "
                 f"Limite: {limite}. "
                 f"Máximo de páginas: {max_paginas}. "
                 f"Dry-run: {dry_run}"
@@ -76,6 +93,8 @@ class Command(BaseCommand):
             produtos = coletar_mais_vendidos(
                 limite=limite,
                 max_paginas=max_paginas,
+                url_base=url_base,
+                nome_fonte=nome_fonte,
             )
 
             execucao.produtos_encontrados = len(produtos)
@@ -171,7 +190,7 @@ class Command(BaseCommand):
                     ranking_categoria=item.get("ranking_categoria"),
                     disponivel=item.get("disponivel", True),
                     texto_disponibilidade=item.get("texto_disponibilidade"),
-                    observacao="Coleta automática da página pública de mais vendidos.",
+                    observacao=f"Coleta automática. Fonte: {nome_fonte or 'Mais vendidos'}. URL base: {url_base or 'Mais vendidos padrão'}.",
                 )
 
                 coletas_gravadas += 1

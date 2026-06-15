@@ -2,7 +2,7 @@ import time
 import os
 import re
 from decimal import Decimal
-from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit
+from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
 
 # IMPORTANTE: Removido 'import requests' para a coleta da página,
 # pois agora usamos o Selenium para gerenciar o tráfego com segurança.
@@ -458,13 +458,102 @@ def extrair_produtos_do_html(html, limite=None):
 
     return produtos
 
-def montar_url_mais_vendidos_pagina(pagina):
+def montar_url_produtos_pagina(url_base, pagina):
     if pagina <= 1:
-        return URL_MAIS_VENDIDOS
+        return url_base
 
-    return f"{URL_MAIS_VENDIDOS}?page={pagina}"
+    partes = urlsplit(url_base)
 
-def coletar_mais_vendidos(limite=None, max_paginas=20):
+    parametros = dict(parse_qsl(partes.query, keep_blank_values=True))
+    parametros["page"] = str(pagina)
+
+    nova_query = urlencode(parametros)
+
+    return urlunsplit((
+        partes.scheme,
+        partes.netloc,
+        partes.path,
+        nova_query,
+        "",
+    ))
+
+
+def montar_url_mais_vendidos_pagina(pagina):
+    return montar_url_produtos_pagina(URL_MAIS_VENDIDOS, pagina)
+
+def limpar_url_paginacao(url):
+    url, _fragmento = urldefrag(url)
+    return url
+
+
+def encontrar_url_proxima_pagina(html, url_atual, numero_pagina_atual):
+    soup = BeautifulSoup(html, "html.parser")
+
+    numero_proxima_pagina = str(numero_pagina_atual + 1)
+    url_atual_limpa = limpar_url_paginacao(url_atual)
+    dominio_atual = urlsplit(url_atual).netloc
+
+    candidatos = []
+
+    for link in soup.find_all("a", href=True):
+        href = link.get("href", "")
+
+        if not href or href.startswith("javascript:"):
+            continue
+
+        texto = normalizar_texto(link.get_text(" ", strip=True)).lower()
+        texto_sem_acento = (
+            texto
+            .replace("ó", "o")
+            .replace("á", "a")
+            .replace("é", "e")
+            .replace("í", "i")
+            .replace("ú", "u")
+            .replace("ã", "a")
+            .replace("õ", "o")
+            .replace("ç", "c")
+        )
+
+        rel = " ".join(link.get("rel", [])).lower() if link.get("rel") else ""
+
+        url_candidata = limpar_url_paginacao(urljoin(url_atual, href))
+        dominio_candidato = urlsplit(url_candidata).netloc
+
+        if dominio_candidato and dominio_candidato != dominio_atual:
+            continue
+
+        if url_candidata == url_atual_limpa:
+            continue
+
+        eh_proxima_pagina = (
+            texto == numero_proxima_pagina
+            or texto_sem_acento in ["proxima", "proximo", "seguinte", "avancar", ">"]
+            or "next" in rel
+            or f"pagina={numero_proxima_pagina}" in url_candidata.lower()
+            or f"page={numero_proxima_pagina}" in url_candidata.lower()
+            or f"p={numero_proxima_pagina}" in url_candidata.lower()
+        )
+
+        if eh_proxima_pagina:
+            candidatos.append(url_candidata)
+
+    if candidatos:
+        return candidatos[0]
+
+    return None
+
+def coletar_mais_vendidos(
+    limite=None,
+    max_paginas=20,
+    url_base=None,
+    nome_fonte=None,
+):
+    if not url_base:
+        url_base = URL_MAIS_VENDIDOS
+
+    if not nome_fonte:
+        nome_fonte = "Mais vendidos"
+
     produtos_coletados = []
     urls_ja_coletadas = set()
 
@@ -506,15 +595,15 @@ def coletar_mais_vendidos(limite=None, max_paginas=20):
             fix_hairline=True)
 
     try:
+        url_pagina = url_base
+
         for numero_pagina in range(1, max_paginas + 1):
             if limite and len(produtos_coletados) >= limite:
                 print(f"[INFO] Limite de {limite} produtos atingido.")
                 break
 
-            # Usa a sua função auxiliar para gerar o link da página atual
-            url_pagina = montar_url_mais_vendidos_pagina(numero_pagina)
-
             print("=" * 80)
+            print(f"[INFO] Fonte: {nome_fonte}")
             print(f"[INFO] Acessando página {numero_pagina}: {url_pagina}")
             print("=" * 80)
 
@@ -596,9 +685,26 @@ def coletar_mais_vendidos(limite=None, max_paginas=20):
             print(f"[INFO] Produtos novos adicionados da página {numero_pagina}: {novos_nesta_pagina}")
             print(f"[INFO] Total acumulado até agora: {len(produtos_coletados)}")
 
+            proxima_url = encontrar_url_proxima_pagina(
+                html_da_pagina,
+                url_pagina,
+                numero_pagina,
+            )
+
             if novos_nesta_pagina == 0:
                 print("[INFO] Página sem produtos novos. Encerrando para evitar repetição infinita.")
                 break
+
+            if limite and len(produtos_coletados) >= limite:
+                print(f"[INFO] Limite de {limite} produtos atingido.")
+                break
+
+            if not proxima_url:
+                print("[INFO] Não encontrei link para próxima página. Encerrando paginação.")
+                break
+
+            print(f"[INFO] Próxima página encontrada: {proxima_url}")
+            url_pagina = proxima_url
 
     finally:
         # Garante que o Chrome seja fechado no final, mesmo se ocorrer algum erro no loop
