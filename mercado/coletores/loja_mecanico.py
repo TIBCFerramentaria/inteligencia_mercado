@@ -45,20 +45,70 @@ def converter_preco_para_decimal(texto_preco):
         return None
 
 
-def extrair_precos(texto_bloco):
-    precos_encontrados = re.findall(r"R\$\s*[\d\.]+,\d{2}", texto_bloco)
+def extrair_preco_em_texto(texto):
+    if not texto:
+        return None
 
-    preco_antigo = None
+    # Remove espaços entre R$, valor e centavos.
+    # Exemplo: "R$ 4.789 ,00" vira "R$4.789,00"
+    texto = str(texto)
+    texto = texto.replace("\xa0", " ")
+    texto = re.sub(r"\s+", "", texto)
+
+    preco_encontrado = re.search(
+        r"R\$\d{1,3}(?:\.\d{3})*,\d{2}|R\$\d+,\d{2}",
+        texto,
+    )
+
+    if not preco_encontrado:
+        return None
+
+    return converter_preco_para_decimal(preco_encontrado.group())
+
+
+def extrair_precos(bloco_produto):
     preco_atual = None
+    preco_antigo = None
 
-    if not precos_encontrados:
-        return preco_atual, preco_antigo
+    # 1. Primeiro tenta pegar o preço correto à vista dentro da div.price.
+    # Exemplo:
+    # <div class="price mb-3">
+    #     <span>R$</span>4.789<span>,00</span>
+    # </div>
+    if hasattr(bloco_produto, "select_one"):
+        div_preco = bloco_produto.select_one("div.price")
 
-    if "DE:" in texto_bloco.upper() and len(precos_encontrados) >= 2:
-        preco_antigo = converter_preco_para_decimal(precos_encontrados[0])
-        preco_atual = converter_preco_para_decimal(precos_encontrados[-1])
+        if div_preco:
+            texto_preco_vista = div_preco.get_text("", strip=True)
+            preco_atual = extrair_preco_em_texto(texto_preco_vista)
+
+    # 2. Pega o texto geral do bloco apenas para tentar identificar preço antigo.
+    if hasattr(bloco_produto, "get_text"):
+        texto_bloco = bloco_produto.get_text(" ", strip=True)
     else:
-        preco_atual = converter_preco_para_decimal(precos_encontrados[0])
+        texto_bloco = str(bloco_produto)
+
+    texto_bloco_upper = texto_bloco.upper()
+
+    # 3. Se existir "DE:", tenta identificar preço antigo.
+    # Aqui tomamos cuidado para não confundir preço a prazo/parcela com preço antigo.
+    if "DE:" in texto_bloco_upper:
+        precos_encontrados = re.findall(
+            r"R\$\s*[\d\.]+,\d{2}",
+            texto_bloco,
+        )
+
+        if len(precos_encontrados) >= 2:
+            preco_antigo = converter_preco_para_decimal(precos_encontrados[0])
+
+            # Só usa o segundo preço como atual se ainda não tiver encontrado a div.price.
+            if preco_atual is None:
+                preco_atual = converter_preco_para_decimal(precos_encontrados[1])
+
+    # 4. Fallback: se não achou div.price, pega o primeiro preço encontrado no texto.
+    # Esse fallback é menos confiável, mas evita retornar vazio.
+    if preco_atual is None:
+        preco_atual = extrair_preco_em_texto(texto_bloco)
 
     return preco_atual, preco_antigo
 
