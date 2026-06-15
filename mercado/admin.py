@@ -8,6 +8,7 @@ from .models import (
     ProdutoColetado,
     ColetaProduto,
     ExecucaoColeta,
+    AlvoColeta,
 )
 
 
@@ -168,3 +169,44 @@ class ExecucaoColetaAdmin(admin.ModelAdmin):
     ]
 
     ordering = ["-data_inicio"]
+
+@admin.register(AlvoColeta)
+class AlvoColetaAdmin(admin.ModelAdmin):
+    list_display = (
+        "nome",
+        "coletor",
+        "nome_fonte",
+        "ativo",
+        "limite",
+        "max_paginas",
+        "ordem",
+        "ultima_situacao",
+        "ultima_execucao",
+    )
+
+    list_filter = (
+        "coletor",
+        "ativo",
+        "ultima_situacao",
+        "site_monitorado",
+        "categoria",
+    )
+
+    search_fields = (
+        "nome",
+        "nome_fonte",
+        "url",
+    )
+
+    ordering = (
+        "ordem",
+        "id",
+    )
+
+    readonly_fields = (
+        "ultima_execucao",
+        "ultima_situacao",
+        "ultima_mensagem",
+        "criado_em",
+        "atualizado_em",
+    )

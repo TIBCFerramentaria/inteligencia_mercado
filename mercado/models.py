@@ -452,3 +452,88 @@ class ExecucaoColeta(models.Model):
             return None
 
         return round((self.data_fim - self.data_inicio).total_seconds(), 2)
+    
+class AlvoColeta(models.Model):
+    class Coletor(models.TextChoices):
+        LOJA_MECANICO = "loja_mecanico", "Loja do Mecânico"
+        DUTRA_MAQUINAS = "dutra_maquinas", "Dutra Máquinas"
+
+    class SituacaoUltimaExecucao(models.TextChoices):
+        PENDENTE = "PENDENTE", "Pendente"
+        SUCESSO = "SUCESSO", "Sucesso"
+        ERRO = "ERRO", "Erro"
+
+    nome = models.CharField(
+        max_length=255,
+        help_text="Nome interno para identificar esta coleta.",
+    )
+
+    coletor = models.CharField(
+        max_length=50,
+        choices=Coletor.choices,
+        help_text="Qual coletor será usado para esta URL.",
+    )
+
+    nome_fonte = models.CharField(
+        max_length=255,
+        help_text="Nome da fonte que aparecerá nos relatórios. Ex: Dutra - Alicates.",
+    )
+
+    url = models.URLField(
+        max_length=1000,
+        help_text="URL da categoria, busca, campanha ou página que será coletada.",
+    )
+
+    site_monitorado = models.ForeignKey(
+        SiteMonitorado,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alvos_coleta",
+    )
+
+    categoria = models.ForeignKey(
+        Categoria,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alvos_coleta",
+    )
+
+    ativo = models.BooleanField(default=True)
+
+    limite = models.PositiveIntegerField(
+        default=500,
+        help_text="Quantidade máxima de produtos a coletar.",
+    )
+
+    max_paginas = models.PositiveIntegerField(
+        default=10,
+        help_text="Quantidade máxima de páginas a percorrer.",
+    )
+
+    ordem = models.PositiveIntegerField(
+        default=0,
+        help_text="Ordem de execução. Menor número roda primeiro.",
+    )
+
+    ultima_execucao = models.DateTimeField(null=True, blank=True)
+
+    ultima_situacao = models.CharField(
+        max_length=20,
+        choices=SituacaoUltimaExecucao.choices,
+        default=SituacaoUltimaExecucao.PENDENTE,
+    )
+
+    ultima_mensagem = models.TextField(blank=True)
+
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["ordem", "id"]
+        verbose_name = "Alvo de coleta"
+        verbose_name_plural = "Alvos de coleta"
+
+    def __str__(self):
+        return f"{self.nome} - {self.get_coletor_display()}"
