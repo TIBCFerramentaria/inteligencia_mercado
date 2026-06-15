@@ -1,3 +1,4 @@
+from decimal import Decimal
 from difflib import SequenceMatcher
 from django.contrib import messages
 from django.db.models import Q
@@ -138,15 +139,42 @@ def lista_referencias(request):
 
     return render(request, "mercado/lista_referencias.html", contexto)
 
+def calcular_diferenca_prazo_vista(preco_atual, preco_prazo):
+    if not preco_atual or not preco_prazo:
+        return None
+
+    try:
+        preco_atual = Decimal(preco_atual)
+        preco_prazo = Decimal(preco_prazo)
+
+        if preco_atual <= 0:
+            return None
+
+        diferenca = ((preco_prazo - preco_atual) / preco_atual) * Decimal("100")
+        return round(diferenca, 2)
+
+    except Exception:
+        return None
+
+
+def montar_texto_parcelamento(coleta):
+    if not coleta:
+        return "-"
+
+    if coleta.quantidade_parcelas and coleta.valor_parcela:
+        return f"{coleta.quantidade_parcelas}x de R$ {coleta.valor_parcela}"
+
+    return "-"
 
 def ranking_mercado(request):
-    coletas = ColetaProduto.objects.select_related(
-        "produto",
-        "produto__site",
-        "produto__marca",
-        "produto__categoria",
-        "produto__produto_referencia",
-    ).order_by("-data_coleta")
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+        "produto_referencia",
+    ).filter(
+        ativo=True
+    )
 
     busca = request.GET.get("busca", "")
     site_id = request.GET.get("site", "")
@@ -155,51 +183,67 @@ def ranking_mercado(request):
     somente_disponiveis = request.GET.get("somente_disponiveis", "")
 
     if busca:
-        coletas = coletas.filter(
-            produto__nome_original__icontains=busca
-        ) | coletas.filter(
-            produto__codigo_fabricante__icontains=busca
-        ) | coletas.filter(
-            produto__ean__icontains=busca
-        ) | coletas.filter(
-            produto__produto_referencia__nome_referencia__icontains=busca
-        ) | coletas.filter(
-            produto__produto_referencia__codigo_fabricante__icontains=busca
-        ) | coletas.filter(
-            produto__produto_referencia__ean__icontains=busca
+        produtos = produtos.filter(
+            Q(nome_original__icontains=busca)
+            | Q(codigo_site__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+            | Q(url__icontains=busca)
         )
 
     if site_id:
-        coletas = coletas.filter(produto__site_id=site_id)
+        produtos = produtos.filter(site_id=site_id)
 
     if marca_id:
-        coletas = coletas.filter(produto__marca_id=marca_id)
+        produtos = produtos.filter(marca_id=marca_id)
 
     if categoria_id:
-        coletas = coletas.filter(produto__categoria_id=categoria_id)
+        produtos = produtos.filter(categoria_id=categoria_id)
 
-    if somente_disponiveis == "1":
-        coletas = coletas.filter(disponivel=True)
+    ranking = []
 
-    # Pega apenas a última coleta de cada produto.
-    ultimas_por_produto = {}
-    for coleta in coletas.distinct():
-        if coleta.produto_id not in ultimas_por_produto:
-            ultimas_por_produto[coleta.produto_id] = coleta
+    for produto in produtos:
+        ultima_coleta = produto.coletas.order_by("-data_coleta").first()
 
-    ranking = list(ultimas_por_produto.values())
+        if not ultima_coleta:
+            continue
 
-    # Ordena priorizando melhor ranking geral; quando não houver ranking, joga para o final.
+        if somente_disponiveis and not ultima_coleta.disponivel:
+            continue
+
+        diferenca_prazo_vista = calcular_diferenca_prazo_vista(
+            ultima_coleta.preco_atual,
+            ultima_coleta.preco_prazo,
+        )
+
+        ranking.append({
+            "produto": produto,
+            "coleta": ultima_coleta,
+            "preco_atual": ultima_coleta.preco_atual,
+            "preco_antigo": ultima_coleta.preco_antigo,
+            "preco_prazo": ultima_coleta.preco_prazo,
+            "quantidade_parcelas": ultima_coleta.quantidade_parcelas,
+            "valor_parcela": ultima_coleta.valor_parcela,
+            "parcelamento": montar_texto_parcelamento(ultima_coleta),
+            "diferenca_prazo_vista": diferenca_prazo_vista,
+            "ranking_geral": ultima_coleta.ranking_geral,
+            "ranking_categoria": ultima_coleta.ranking_categoria,
+            "nota_media": ultima_coleta.nota_media,
+            "quantidade_avaliacoes": ultima_coleta.quantidade_avaliacoes,
+            "disponivel": ultima_coleta.disponivel,
+            "data_coleta": ultima_coleta.data_coleta,
+        })
+
     ranking.sort(
-        key=lambda coleta: (
-            coleta.ranking_geral if coleta.ranking_geral is not None else 999999,
-            coleta.ranking_categoria if coleta.ranking_categoria is not None else 999999,
-            coleta.preco_atual if coleta.preco_atual is not None else 999999999,
+        key=lambda item: (
+            item["ranking_geral"] if item["ranking_geral"] is not None else 999999,
+            item["preco_atual"] if item["preco_atual"] is not None else Decimal("999999999"),
         )
     )
 
     contexto = {
         "ranking": ranking,
+        "total_produtos": len(ranking),
         "sites": SiteMonitorado.objects.all(),
         "marcas": Marca.objects.all(),
         "categorias": Categoria.objects.all(),
@@ -208,158 +252,9 @@ def ranking_mercado(request):
         "marca_id": marca_id,
         "categoria_id": categoria_id,
         "somente_disponiveis": somente_disponiveis,
-        "total_ranking": len(ranking),
-        "query_string": request.GET.urlencode(),
     }
 
     return render(request, "mercado/ranking_mercado.html", contexto)
-
-def forca_marcas(request):
-    coletas = ColetaProduto.objects.select_related(
-        "produto",
-        "produto__site",
-        "produto__marca",
-        "produto__categoria",
-        "produto__produto_referencia",
-        "produto__produto_referencia__fabricante_importador",
-    ).order_by("-data_coleta")
-
-    # Pega somente a última coleta de cada produto.
-    ultimas_por_produto = {}
-    for coleta in coletas:
-        if coleta.produto_id not in ultimas_por_produto:
-            ultimas_por_produto[coleta.produto_id] = coleta
-
-    grupos = {}
-
-    for coleta in ultimas_por_produto.values():
-        produto = coleta.produto
-
-        marca_nome = "Sem marca"
-        fabricante_nome = "-"
-
-        if produto.produto_referencia and produto.produto_referencia.marca:
-            marca_nome = produto.produto_referencia.marca.nome
-        elif produto.marca:
-            marca_nome = produto.marca.nome
-
-        if (
-            produto.produto_referencia
-            and produto.produto_referencia.fabricante_importador
-        ):
-            fabricante_nome = produto.produto_referencia.fabricante_importador.nome
-
-        if marca_nome not in grupos:
-            grupos[marca_nome] = {
-                "marca": marca_nome,
-                "fabricante": fabricante_nome,
-                "qtd_produtos": 0,
-                "qtd_vinculados": 0,
-                "qtd_disponiveis": 0,
-                "soma_precos": 0,
-                "qtd_precos": 0,
-                "soma_notas": 0,
-                "qtd_notas": 0,
-                "total_avaliacoes": 0,
-                "soma_rankings": 0,
-                "qtd_rankings": 0,
-            }
-
-        grupo = grupos[marca_nome]
-        grupo["qtd_produtos"] += 1
-
-        if produto.status_vinculo == "VINCULADO":
-            grupo["qtd_vinculados"] += 1
-
-        if coleta.disponivel:
-            grupo["qtd_disponiveis"] += 1
-
-        if coleta.preco_atual is not None:
-            grupo["soma_precos"] += float(coleta.preco_atual)
-            grupo["qtd_precos"] += 1
-
-        if coleta.nota_media is not None:
-            grupo["soma_notas"] += float(coleta.nota_media)
-            grupo["qtd_notas"] += 1
-
-        if coleta.quantidade_avaliacoes is not None:
-            grupo["total_avaliacoes"] += coleta.quantidade_avaliacoes
-
-        if coleta.ranking_geral is not None:
-            grupo["soma_rankings"] += coleta.ranking_geral
-            grupo["qtd_rankings"] += 1
-
-    resultado = []
-
-    for grupo in grupos.values():
-        qtd_produtos = grupo["qtd_produtos"]
-
-        preco_medio = None
-        if grupo["qtd_precos"] > 0:
-            preco_medio = grupo["soma_precos"] / grupo["qtd_precos"]
-
-        nota_media = None
-        if grupo["qtd_notas"] > 0:
-            nota_media = grupo["soma_notas"] / grupo["qtd_notas"]
-
-        ranking_medio = None
-        if grupo["qtd_rankings"] > 0:
-            ranking_medio = grupo["soma_rankings"] / grupo["qtd_rankings"]
-
-        percentual_disponivel = 0
-        if qtd_produtos > 0:
-            percentual_disponivel = grupo["qtd_disponiveis"] / qtd_produtos
-
-        percentual_vinculado = 0
-        if qtd_produtos > 0:
-            percentual_vinculado = grupo["qtd_vinculados"] / qtd_produtos
-
-        # Score inicial de força da marca.
-        # Este score será refinado depois com mais dados e mais sites.
-        score = 0
-
-        # Presença da marca no mercado monitorado.
-        score += min(qtd_produtos * 5, 25)
-
-        # Disponibilidade dos produtos.
-        score += percentual_disponivel * 20
-
-        # Qualidade percebida por nota.
-        if nota_media is not None:
-            score += (nota_media / 5) * 20
-
-        # Volume de avaliações como sinal de histórico/demanda.
-        score += min(grupo["total_avaliacoes"] / 1000 * 20, 20)
-
-        # Ranking médio: quanto menor, melhor.
-        if ranking_medio is not None:
-            if ranking_medio <= 10:
-                score += 15
-            elif ranking_medio <= 50:
-                score += 10
-            elif ranking_medio <= 100:
-                score += 6
-            else:
-                score += 3
-
-        # Confiabilidade por vínculo com produto referência.
-        score += percentual_vinculado * 20
-
-        grupo["preco_medio"] = preco_medio
-        grupo["nota_media"] = nota_media
-        grupo["ranking_medio"] = ranking_medio
-        grupo["score"] = round(score, 2)
-
-        resultado.append(grupo)
-
-    resultado.sort(key=lambda item: item["score"], reverse=True)
-
-    contexto = {
-        "marcas": resultado,
-        "total_marcas": len(resultado),
-    }
-
-    return render(request, "mercado/forca_marcas.html", contexto)
 
 def precos_referencias(request):
     coletas = ColetaProduto.objects.select_related(
@@ -1283,3 +1178,141 @@ def aplicar_sugestoes_alta_confianca(request):
     )
 
     return redirect("mercado:sugestoes_vinculo")
+
+def forca_marcas(request):
+    produtos = ProdutoColetado.objects.select_related(
+        "site",
+        "marca",
+        "categoria",
+    ).filter(
+        ativo=True,
+        marca__isnull=False,
+    )
+
+    busca = request.GET.get("busca", "")
+    site_id = request.GET.get("site", "")
+    categoria_id = request.GET.get("categoria", "")
+
+    if busca:
+        produtos = produtos.filter(
+            Q(nome_original__icontains=busca)
+            | Q(marca__nome__icontains=busca)
+            | Q(codigo_site__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+        )
+
+    if site_id:
+        produtos = produtos.filter(site_id=site_id)
+
+    if categoria_id:
+        produtos = produtos.filter(categoria_id=categoria_id)
+
+    marcas = {}
+
+    for produto in produtos:
+        if not produto.marca:
+            continue
+
+        ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+
+        if not ultima_coleta:
+            continue
+
+        marca_nome = produto.marca.nome
+
+        if marca_nome not in marcas:
+            marcas[marca_nome] = {
+                "marca": produto.marca,
+                "qtd_produtos": 0,
+                "qtd_vinculados": 0,
+                "qtd_disponiveis": 0,
+                "soma_preco_atual": Decimal("0"),
+                "qtd_preco_atual": 0,
+                "soma_preco_prazo": Decimal("0"),
+                "qtd_preco_prazo": 0,
+                "soma_nota": Decimal("0"),
+                "qtd_nota": 0,
+                "total_avaliacoes": 0,
+                "soma_ranking": Decimal("0"),
+                "qtd_ranking": 0,
+            }
+
+        item = marcas[marca_nome]
+
+        item["qtd_produtos"] += 1
+
+        if produto.produto_referencia_id:
+            item["qtd_vinculados"] += 1
+
+        if ultima_coleta.disponivel:
+            item["qtd_disponiveis"] += 1
+
+        if ultima_coleta.preco_atual:
+            item["soma_preco_atual"] += ultima_coleta.preco_atual
+            item["qtd_preco_atual"] += 1
+
+        if ultima_coleta.preco_prazo:
+            item["soma_preco_prazo"] += ultima_coleta.preco_prazo
+            item["qtd_preco_prazo"] += 1
+
+        if ultima_coleta.nota_media:
+            item["soma_nota"] += ultima_coleta.nota_media
+            item["qtd_nota"] += 1
+
+        if ultima_coleta.quantidade_avaliacoes:
+            item["total_avaliacoes"] += ultima_coleta.quantidade_avaliacoes
+
+        if ultima_coleta.ranking_geral:
+            item["soma_ranking"] += Decimal(ultima_coleta.ranking_geral)
+            item["qtd_ranking"] += 1
+
+    ranking_marcas = []
+
+    for dados in marcas.values():
+        preco_medio_atual = None
+        preco_medio_prazo = None
+        nota_media = None
+        ranking_medio = None
+
+        if dados["qtd_preco_atual"]:
+            preco_medio_atual = dados["soma_preco_atual"] / dados["qtd_preco_atual"]
+
+        if dados["qtd_preco_prazo"]:
+            preco_medio_prazo = dados["soma_preco_prazo"] / dados["qtd_preco_prazo"]
+
+        if dados["qtd_nota"]:
+            nota_media = dados["soma_nota"] / dados["qtd_nota"]
+
+        if dados["qtd_ranking"]:
+            ranking_medio = dados["soma_ranking"] / dados["qtd_ranking"]
+
+        ranking_marcas.append({
+            "marca": dados["marca"],
+            "qtd_produtos": dados["qtd_produtos"],
+            "qtd_vinculados": dados["qtd_vinculados"],
+            "qtd_disponiveis": dados["qtd_disponiveis"],
+            "preco_medio_atual": preco_medio_atual,
+            "preco_medio_prazo": preco_medio_prazo,
+            "nota_media": nota_media,
+            "total_avaliacoes": dados["total_avaliacoes"],
+            "ranking_medio": ranking_medio,
+        })
+
+    ranking_marcas.sort(
+        key=lambda item: (
+            -(item["qtd_produtos"] or 0),
+            item["ranking_medio"] if item["ranking_medio"] is not None else Decimal("999999"),
+        )
+    )
+
+    contexto = {
+        "ranking_marcas": ranking_marcas,
+        "total_marcas": len(ranking_marcas),
+        "sites": SiteMonitorado.objects.all(),
+        "categorias": Categoria.objects.all(),
+        "busca": busca,
+        "site_id": site_id,
+        "categoria_id": categoria_id,
+    }
+
+    return render(request, "mercado/forca_marcas.html", contexto)

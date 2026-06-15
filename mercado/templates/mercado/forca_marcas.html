@@ -113,75 +113,75 @@
         Total de marcas analisadas: {{ total_marcas }}
     </p>
 
-    <table>
-        <thead>
+   <table>
+    <thead>
+        <tr>
+            <th>Marca</th>
+            <th>Qtd. produtos</th>
+            <th>Produtos vinculados</th>
+            <th>Disponíveis</th>
+            <th>Preço médio à vista</th>
+            <th>Preço médio a prazo</th>
+            <th>Nota média</th>
+            <th>Total avaliações</th>
+            <th>Ranking médio</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for item in ranking_marcas %}
             <tr>
-                <th>Posição</th>
-                <th>Marca</th>
-                <th>Fabricante / Importador</th>
-                <th>Produtos monitorados</th>
-                <th>Produtos vinculados</th>
-                <th>Disponíveis</th>
-                <th>Preço médio</th>
-                <th>Nota média</th>
-                <th>Total avaliações</th>
-                <th>Ranking médio</th>
-                <th>Score força</th>
+                <td>
+                    <strong>{{ item.marca.nome }}</strong>
+                </td>
+
+                <td>{{ item.qtd_produtos }}</td>
+                <td>{{ item.qtd_vinculados }}</td>
+                <td>{{ item.qtd_disponiveis }}</td>
+
+                <td>
+                    {% if item.preco_medio_atual %}
+                        R$ {{ item.preco_medio_atual|floatformat:2 }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.preco_medio_prazo %}
+                        R$ {{ item.preco_medio_prazo|floatformat:2 }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.nota_media %}
+                        {{ item.nota_media|floatformat:2 }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>{{ item.total_avaliacoes }}</td>
+
+                <td>
+                    {% if item.ranking_medio %}
+                        {{ item.ranking_medio|floatformat:2 }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
             </tr>
-        </thead>
-        <tbody>
-            {% for marca in marcas %}
-                <tr>
-                    <td>{{ forloop.counter }}</td>
-                    <td>{{ marca.marca }}</td>
-                    <td>{{ marca.fabricante }}</td>
-                    <td>{{ marca.qtd_produtos }}</td>
-                    <td>{{ marca.qtd_vinculados }}</td>
-                    <td>{{ marca.qtd_disponiveis }}</td>
-
-                    <td>
-                        {% if marca.preco_medio %}
-                            R$ {{ marca.preco_medio|floatformat:2 }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if marca.nota_media %}
-                            {{ marca.nota_media|floatformat:2 }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>{{ marca.total_avaliacoes }}</td>
-
-                    <td>
-                        {% if marca.ranking_medio %}
-                            {{ marca.ranking_medio|floatformat:1 }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if marca.score >= 70 %}
-                            <span class="score-alto">{{ marca.score }}</span>
-                        {% elif marca.score >= 40 %}
-                            <span class="score-medio">{{ marca.score }}</span>
-                        {% else %}
-                            <span class="score-baixo">{{ marca.score }}</span>
-                        {% endif %}
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="11">Ainda não existem dados suficientes para análise de marcas.</td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        {% empty %}
+            <tr>
+                <td colspan="9">
+                    Nenhuma marca encontrada com os filtros atuais.
+                </td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
 
 </body>
 </html>

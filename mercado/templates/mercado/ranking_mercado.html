@@ -245,101 +245,103 @@
     </p>
 
     <table>
-        <thead>
+    <thead>
+        <tr>
+            <th>Ranking</th>
+            <th>Produto</th>
+            <th>Site</th>
+            <th>Marca</th>
+            <th>Categoria</th>
+            <th>Preço à vista</th>
+            <th>Preço a prazo</th>
+            <th>Parcelamento</th>
+            <th>Dif. prazo x vista</th>
+            <th>Preço antigo</th>
+            <th>Nota</th>
+            <th>Avaliações</th>
+            <th>Disponível</th>
+            <th>Data coleta</th>
+            <th>Link</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for item in ranking %}
             <tr>
-                <th>Ranking geral</th>
-                <th>Ranking categoria</th>
-                <th>Produto coletado</th>
-                <th>Produto referência</th>
-                <th>Site</th>
-                <th>Marca</th>
-                <th>Categoria</th>
-                <th>Preço atual</th>
-                <th>Preço antigo</th>
-                <th>Desconto</th>
-                <th>Nota</th>
-                <th>Avaliações</th>
-                <th>Disponível</th>
-                <th>Status vínculo</th>
-                <th>Data coleta</th>
-                <th>Link</th>
+                <td>{{ item.ranking_geral|default:"-" }}</td>
+
+                <td>
+                    <strong>{{ item.produto.nome_original }}</strong>
+                    <br>
+                    <small>
+                        Código site: {{ item.produto.codigo_site|default:"-" }}
+                        <br>
+                        Código fabricante: {{ item.produto.codigo_fabricante|default:"-" }}
+                    </small>
+                </td>
+
+                <td>{{ item.produto.site.nome }}</td>
+                <td>{{ item.produto.marca|default:"-" }}</td>
+                <td>{{ item.produto.categoria|default:"-" }}</td>
+
+                <td>
+                    {% if item.preco_atual %}
+                        R$ {{ item.preco_atual }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.preco_prazo %}
+                        R$ {{ item.preco_prazo }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>{{ item.parcelamento }}</td>
+
+                <td>
+                    {% if item.diferenca_prazo_vista is not None %}
+                        {{ item.diferenca_prazo_vista }}%
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if item.preco_antigo %}
+                        R$ {{ item.preco_antigo }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+
+                <td>{{ item.nota_media|default:"-" }}</td>
+                <td>{{ item.quantidade_avaliacoes|default:"-" }}</td>
+
+                <td>
+                    {% if item.disponivel %}
+                        Sim
+                    {% else %}
+                        Não
+                    {% endif %}
+                </td>
+
+                <td>{{ item.data_coleta|date:"d/m/Y H:i" }}</td>
+
+                <td>
+                    <a href="{{ item.produto.url }}" target="_blank">Abrir</a>
+                </td>
             </tr>
-        </thead>
-        <tbody>
-            {% for coleta in ranking %}
-                <tr>
-                    <td>{{ coleta.ranking_geral|default:"-" }}</td>
-                    <td>{{ coleta.ranking_categoria|default:"-" }}</td>
-
-                    <td>{{ coleta.produto.nome_original }}</td>
-                    <td>{{ coleta.produto.produto_referencia|default:"-" }}</td>
-
-                    <td>{{ coleta.produto.site.nome }}</td>
-                    <td>{{ coleta.produto.marca|default:"-" }}</td>
-                    <td>{{ coleta.produto.categoria|default:"-" }}</td>
-
-                    <td class="preco">
-                        {% if coleta.preco_atual %}
-                            R$ {{ coleta.preco_atual }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if coleta.preco_antigo %}
-                            R$ {{ coleta.preco_antigo }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if coleta.desconto_percentual %}
-                            {{ coleta.desconto_percentual }}%
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-
-                    <td>{{ coleta.nota_media|default:"-" }}</td>
-                    <td>{{ coleta.quantidade_avaliacoes|default:"-" }}</td>
-
-                    <td>
-                        {% if coleta.disponivel %}
-                            <span class="disponivel">Sim</span>
-                        {% else %}
-                            <span class="indisponivel">Não</span>
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if coleta.produto.status_vinculo == "VINCULADO" %}
-                            <span class="vinculado">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% elif coleta.produto.status_vinculo == "PENDENTE" %}
-                            <span class="pendente">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% elif coleta.produto.status_vinculo == "DIVERGENTE" %}
-                            <span class="divergente">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% else %}
-                            <span class="sem-referencia">{{ coleta.produto.get_status_vinculo_display }}</span>
-                        {% endif %}
-                    </td>
-
-                    <td>{{ coleta.data_coleta|date:"d/m/Y H:i" }}</td>
-
-                    <td>
-                        <a class="link-produto" href="{{ coleta.produto.url }}" target="_blank">
-                            Abrir
-                        </a>
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="16">Nenhuma coleta encontrada.</td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        {% empty %}
+            <tr>
+                <td colspan="15">Nenhum produto encontrado para os filtros selecionados.</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
 
 </body>
 </html>
