@@ -293,9 +293,11 @@ def precos_referencias(request):
 
     if busca:
         referencias = referencias.filter(
-            Q(nome__icontains=busca)
-            | Q(codigo_fabricante__icontains=busca)
-            | Q(ean__icontains=busca)
+          Q(nome_referencia__icontains=busca)
+          | Q(codigo_fabricante__icontains=busca)
+          | Q(ean__icontains=busca)
+          | Q(marca__nome__icontains=busca)
+          | Q(fabricante_importador__nome__icontains=busca)
         )
 
     linhas = []
@@ -389,9 +391,11 @@ def exportar_precos_referencias_excel(request):
 
     if busca:
         referencias = referencias.filter(
-            Q(nome__icontains=busca)
+            Q(nome_referencia__icontains=busca)
             | Q(codigo_fabricante__icontains=busca)
             | Q(ean__icontains=busca)
+            | Q(marca__nome__icontains=busca)
+            | Q(fabricante_importador__nome__icontains=busca)
         )
 
     linhas = []
