@@ -271,6 +271,8 @@ class ColetaProduto(models.Model):
         related_name="coletas"
     )
 
+    estoque = models.IntegerField(null=True, blank=True)
+
     data_coleta = models.DateTimeField(auto_now_add=True)
 
     preco_atual = models.DecimalField(

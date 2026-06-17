@@ -122,6 +122,8 @@ class Command(BaseCommand):
                     self.stdout.write(f"Marca: {produto.get('marca_nome')}")
                     self.stdout.write(f"Código fabricante: {produto.get('codigo_fabricante')}")
                     self.stdout.write(f"Código site: {produto.get('codigo_site')}")
+                    self.stdout.write(f"EAN: {produto.get('ean')}")
+                    self.stdout.write(f"Estoque: {produto.get('estoque')}")
                     self.stdout.write(f"Preço atual: {produto.get('preco_atual')}")
                     self.stdout.write(f"Preço antigo: {produto.get('preco_antigo')}")
                     self.stdout.write(f"Desconto: {produto.get('desconto_percentual')}")
@@ -157,18 +159,22 @@ class Command(BaseCommand):
                         nome=marca_nome.upper()
                     )
 
+                defaults = {
+                    "categoria": categoria,
+                    "marca": marca,
+                    "nome_original": item.get("nome_original"),
+                    "codigo_site": item.get("codigo_site"),
+                    "codigo_fabricante": item.get("codigo_fabricante"),
+                    "ativo": True,
+                }
+
+                if item.get("ean"):
+                    defaults["ean"] = item.get("ean")
+
                 produto, criado = ProdutoColetado.objects.update_or_create(
                     site=site,
                     url=item.get("url"),
-                    defaults={
-                        "categoria": categoria,
-                        "marca": marca,
-                        "nome_original": item.get("nome_original"),
-                        "codigo_site": item.get("codigo_site"),
-                        "codigo_fabricante": item.get("codigo_fabricante"),
-                        "ean": item.get("ean"),
-                        "ativo": True,
-                    },
+                    defaults=defaults,
                 )
 
                 if criado:
@@ -189,6 +195,7 @@ class Command(BaseCommand):
                     ranking_geral=item.get("ranking_geral"),
                     ranking_categoria=item.get("ranking_categoria"),
                     disponivel=item.get("disponivel", True),
+                    estoque=item.get("estoque"),
                     texto_disponibilidade=item.get("texto_disponibilidade"),
                     observacao=f"Coleta automática. Fonte: {nome_fonte or 'Mais vendidos'}. URL base: {url_base or 'Mais vendidos padrão'}.",
                 )

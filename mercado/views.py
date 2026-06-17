@@ -295,9 +295,10 @@ def precos_referencias(request):
         referencias = referencias.filter(
           Q(nome_referencia__icontains=busca)
           | Q(codigo_fabricante__icontains=busca)
+          | Q(codigo_site__icontains=busca)
           | Q(ean__icontains=busca)
           | Q(marca__nome__icontains=busca)
-          | Q(fabricante_importador__nome__icontains=busca)
+          | Q(marca_nome__icontains=busca)
         )
 
     linhas = []
@@ -394,8 +395,8 @@ def exportar_precos_referencias_excel(request):
             Q(nome_referencia__icontains=busca)
             | Q(codigo_fabricante__icontains=busca)
             | Q(ean__icontains=busca)
-            | Q(marca__nome__icontains=busca)
-            | Q(fabricante_importador__nome__icontains=busca)
+            | Q(marca_nome__icontains=busca)
+            | Q(fabricante_importador_nome__icontains=busca)
         )
 
     linhas = []
@@ -1232,74 +1233,461 @@ def similaridade_texto(texto_a, texto_b):
     return SequenceMatcher(None, texto_a, texto_b).ratio()
 
 
+def normalizar_codigo_vinculo(valor):
+    if not valor:
+        return ""
+
+    valor = normalizar_para_comparacao(valor)
+    valor = valor.replace("cod", "")
+    valor = valor.replace("codigo", "")
+    valor = valor.replace("código", "")
+
+    import re
+    valor = re.sub(r"[^a-z0-9]", "", valor.lower())
+
+    return valor
+
+
+def obter_nome_marca_vinculo(objeto):
+    marca = getattr(objeto, "marca", None)
+
+    if not marca:
+        return ""
+
+    return normalizar_para_comparacao(getattr(marca, "nome", "") or "")
+
+
+def obter_nome_fabricante_importador_vinculo(objeto):
+    fabricante = getattr(objeto, "fabricante_importador", None)
+
+    if not fabricante:
+        return ""
+
+    return normalizar_para_comparacao(getattr(fabricante, "nome", "") or "")
+
 def gerar_sugestao_para_produto(produto, referencias):
     melhor_sugestao = None
+    melhor_chave_ordenacao = None
 
-    produto_ean = normalizar_para_comparacao(produto.ean)
-    produto_codigo = normalizar_para_comparacao(produto.codigo_fabricante)
-    produto_marca = produto.marca.nome.upper() if produto.marca else ""
+    produto_ean = normalizar_codigo_vinculo(getattr(produto, "ean", ""))
+    produto_codigo_fabricante = normalizar_codigo_vinculo(
+        getattr(produto, "codigo_fabricante", "")
+    )
+    produto_codigo_site = normalizar_codigo_vinculo(
+        getattr(produto, "codigo_site", "")
+    )
+
+    produto_marca = obter_nome_marca_vinculo(produto)
+    produto_fabricante = obter_nome_fabricante_importador_vinculo(produto)
 
     for referencia in referencias:
-        referencia_ean = normalizar_para_comparacao(referencia.ean)
-        referencia_codigo = normalizar_para_comparacao(referencia.codigo_fabricante)
-        referencia_marca = referencia.marca.nome.upper() if referencia.marca else ""
+        referencia_ean = normalizar_codigo_vinculo(getattr(referencia, "ean", ""))
+        referencia_codigo_fabricante = normalizar_codigo_vinculo(
+            getattr(referencia, "codigo_fabricante", "")
+        )
+
+        referencia_marca = obter_nome_marca_vinculo(referencia)
+        referencia_fabricante = obter_nome_fabricante_importador_vinculo(referencia)
+
+        nome_produto = getattr(produto, "nome_original", "") or ""
+        nome_referencia = getattr(referencia, "nome_referencia", "") or ""
+
+        similaridade = similaridade_texto(
+            nome_produto,
+            nome_referencia,
+        )
+
+        ean_igual = bool(
+            produto_ean
+            and referencia_ean
+            and produto_ean == referencia_ean
+        )
+
+        codigo_fabricante_igual = bool(
+            produto_codigo_fabricante
+            and referencia_codigo_fabricante
+            and produto_codigo_fabricante == referencia_codigo_fabricante
+        )
+
+        codigo_site_igual = bool(
+            produto_codigo_site
+            and referencia_codigo_fabricante
+            and produto_codigo_site == referencia_codigo_fabricante
+        )
+
+        marca_igual = bool(
+            produto_marca
+            and referencia_marca
+            and produto_marca == referencia_marca
+        )
+
+        marca_divergente = bool(
+            produto_marca
+            and referencia_marca
+            and produto_marca != referencia_marca
+        )
+
+        fabricante_igual = bool(
+            produto_fabricante
+            and referencia_fabricante
+            and produto_fabricante == referencia_fabricante
+        )
+
+        fabricante_vazio = bool(
+            not produto_fabricante
+            or not referencia_fabricante
+        )
+
+        fabricante_divergente = bool(
+            produto_fabricante
+            and referencia_fabricante
+            and produto_fabricante != referencia_fabricante
+        )
 
         criterio = None
         confianca = 0
+        bloqueado = False
 
-        # 1. Melhor critério: EAN igual.
-        if produto_ean and referencia_ean and produto_ean == referencia_ean:
-            criterio = "EAN igual"
+        # 1. EAN igual + Código fabricante igual + fabricante igual → 100%
+        if ean_igual and codigo_fabricante_igual and fabricante_igual:
+            criterio = "EAN igual + código fabricante igual + fabricante/importador igual"
             confianca = 100
 
-        # 2. Código fabricante igual + marca igual.
-        elif (
-            produto_codigo
-            and referencia_codigo
-            and produto_codigo == referencia_codigo
-            and produto_marca
-            and referencia_marca
-            and produto_marca == referencia_marca
-        ):
-            criterio = "Código fabricante igual + marca igual"
+        # 2. EAN igual + Código fabricante igual + fabricante vazio → 95%
+        elif ean_igual and codigo_fabricante_igual and fabricante_vazio:
+            criterio = "EAN igual + código fabricante igual + fabricante/importador não informado"
             confianca = 95
 
-        # 3. Código fabricante igual.
-        elif produto_codigo and referencia_codigo and produto_codigo == referencia_codigo:
-            criterio = "Código fabricante igual"
+        # 3. EAN igual + Código fabricante igual + fabricante diferente → 90%
+        elif ean_igual and codigo_fabricante_igual and fabricante_divergente:
+            criterio = "EAN igual + código fabricante igual + fabricante/importador divergente"
+            confianca = 90
+
+        # Caso EAN + código fabricante iguais, mas sem condição clara de fabricante.
+        elif ean_igual and codigo_fabricante_igual:
+            criterio = "EAN igual + código fabricante igual"
+            confianca = 93
+
+        # 4. Código fabricante igual + fabricante igual → altíssima confiança
+        elif codigo_fabricante_igual and fabricante_igual:
+            criterio = "Código fabricante igual + fabricante/importador igual"
+            confianca = 92
+
+        # 5. Código fabricante igual + marca igual → forte
+        elif codigo_fabricante_igual and marca_igual:
+            criterio = "Código fabricante igual + marca igual"
             confianca = 85
 
-        # 4. Nome parecido + marca igual.
+        # Código fabricante igual sozinho ainda é forte, mas menor.
+        elif codigo_fabricante_igual:
+            criterio = "Código fabricante igual"
+            confianca = 78
+
+        # Código do site pode ser usado como apoio.
+        elif codigo_site_igual and fabricante_igual:
+            criterio = "Código do site igual + fabricante/importador igual"
+            confianca = 82
+
+        elif codigo_site_igual and marca_igual:
+            criterio = "Código do site igual + marca igual"
+            confianca = 76
+
+        # EAN igual sem código fabricante igual.
+        # Importante: não pode mais ganhar 100%.
+        elif ean_igual and fabricante_igual:
+            criterio = "EAN igual + fabricante/importador igual"
+            confianca = 88
+
+        elif ean_igual and marca_igual:
+            criterio = "EAN igual + marca igual"
+            confianca = 82
+
+        elif ean_igual:
+            criterio = "EAN igual sem confirmação de código/fabricante"
+            confianca = 75
+
+        # 6. Marca igual + nome parecido → média
+        elif marca_igual and similaridade >= 0.92:
+            criterio = "Marca igual + nome muito parecido"
+            confianca = 75
+
+        elif marca_igual and similaridade >= 0.85:
+            criterio = "Marca igual + nome parecido"
+            confianca = 68
+
+        elif marca_igual and similaridade >= 0.75:
+            criterio = "Marca igual + nome parcialmente parecido"
+            confianca = 60
+
+        # Segurança: nome muito parecido sem marca/código/EAN não deve sugerir forte.
+        elif similaridade >= 0.90 and not marca_divergente and not fabricante_divergente:
+            criterio = "Nome muito parecido, mas sem confirmação de marca/código"
+            confianca = 55
+
         else:
-            similaridade = similaridade_texto(
-                produto.nome_original,
-                referencia.nome_referencia,
+            bloqueado = True
+
+        # Bloqueios de segurança.
+        # Se marca diverge e não existe EAN nem código fabricante igual, não sugere.
+        if marca_divergente and not ean_igual and not codigo_fabricante_igual:
+            bloqueado = True
+            criterio = f"Marca divergente: {produto_marca} x {referencia_marca}"
+            confianca = 0
+
+        # Se fabricante diverge e não existe EAN nem código fabricante igual, não sugere.
+        if fabricante_divergente and not ean_igual and not codigo_fabricante_igual:
+            bloqueado = True
+            criterio = (
+                "Fabricante/importador divergente sem EAN ou código fabricante igual"
             )
+            confianca = 0
 
-            if (
-                similaridade >= 0.70
-                and produto_marca
-                and referencia_marca
-                and produto_marca == referencia_marca
-            ):
-                criterio = "Nome parecido + marca igual"
-                confianca = round(similaridade * 100, 2)
+        if bloqueado or not criterio or confianca <= 0:
+            continue
 
-            elif similaridade >= 0.82:
-                criterio = "Nome muito parecido"
-                confianca = round(similaridade * 100, 2)
+        # Chave de ordenação.
+        # Isso garante que, em caso de proximidade, fabricante/código/EAN pesem mais que nome.
+        chave_ordenacao = (
+            confianca,
+            ean_igual,
+            codigo_fabricante_igual,
+            fabricante_igual,
+            marca_igual,
+            similaridade,
+        )
 
-        if criterio and confianca > 0:
-            if not melhor_sugestao or confianca > melhor_sugestao["confianca"]:
-                melhor_sugestao = {
-                    "produto": produto,
-                    "referencia": referencia,
-                    "criterio": criterio,
-                    "confianca": confianca,
-                }
+        if (
+            melhor_sugestao is None
+            or chave_ordenacao > melhor_chave_ordenacao
+        ):
+            melhor_sugestao = {
+                "produto": produto,
+                "referencia": referencia,
+                "criterio": criterio,
+                "motivo": criterio,
+                "confianca": confianca,
+                "pontuacao": confianca,
+                "similaridade_nome": round(similaridade, 4),
+                "ean_igual": ean_igual,
+                "codigo_fabricante_igual": codigo_fabricante_igual,
+                "fabricante_igual": fabricante_igual,
+                "marca_igual": marca_igual,
+                "bloqueado": False,
+            }
+
+            melhor_chave_ordenacao = chave_ordenacao
 
     return melhor_sugestao
 
+def obter_nome_fabricante_importador(objeto):
+    fabricante = getattr(objeto, "fabricante_importador", None)
+
+    if not fabricante:
+        return ""
+
+    return normalizar_para_comparacao(getattr(fabricante, "nome", "") or "")
+
+def avaliar_sugestao_vinculo(produto_coletado, referencia):
+    nome_produto = (
+        getattr(produto_coletado, "nome_original", "")
+        or getattr(produto_coletado, "nome", "")
+        or ""
+    )
+
+    nome_referencia = getattr(referencia, "nome_referencia", "") or ""
+
+    ean_produto = limpar_codigo(getattr(produto_coletado, "ean", ""))
+    ean_referencia = limpar_codigo(getattr(referencia, "ean", ""))
+
+    codigo_produto_fabricante = limpar_codigo(
+        getattr(produto_coletado, "codigo_fabricante", "")
+    )
+
+    codigo_produto_site = limpar_codigo(
+        getattr(produto_coletado, "codigo_site", "")
+    )
+
+    codigo_referencia = limpar_codigo(
+        getattr(referencia, "codigo_fabricante", "")
+    )
+
+    marca_produto = obter_nome_marca(produto_coletado)
+    marca_referencia = obter_nome_marca(referencia)
+
+    fabricante_produto = obter_nome_fabricante_importador(produto_coletado)
+    fabricante_referencia = obter_nome_fabricante_importador(referencia)
+
+    ean_igual = bool(ean_produto and ean_referencia and ean_produto == ean_referencia)
+
+    codigo_fabricante_igual = bool(
+        codigo_produto_fabricante
+        and codigo_referencia
+        and codigo_produto_fabricante == codigo_referencia
+    )
+
+    codigo_site_igual = bool(
+        codigo_produto_site
+        and codigo_referencia
+        and codigo_produto_site == codigo_referencia
+    )
+
+    marca_igual = bool(
+        marca_produto
+        and marca_referencia
+        and marca_produto == marca_referencia
+    )
+
+    marca_divergente = bool(
+        marca_produto
+        and marca_referencia
+        and marca_produto != marca_referencia
+    )
+
+    fabricante_igual = bool(
+        fabricante_produto
+        and fabricante_referencia
+        and fabricante_produto == fabricante_referencia
+    )
+
+    fabricante_vazio = bool(
+        not fabricante_produto
+        or not fabricante_referencia
+    )
+
+    fabricante_divergente = bool(
+        fabricante_produto
+        and fabricante_referencia
+        and fabricante_produto != fabricante_referencia
+    )
+
+    sim_nome = similaridade_nome(nome_produto, nome_referencia)
+
+    if ean_igual and codigo_fabricante_igual and fabricante_igual:
+        return {
+            "pontuacao": 100,
+            "similaridade_nome": sim_nome,
+            "motivo": "EAN igual + código fabricante igual + fabricante/importador igual",
+            "bloqueado": False,
+            "ean_igual": True,
+            "codigo_fabricante_igual": True,
+            "fabricante_igual": True,
+            "marca_igual": marca_igual,
+        }
+
+    if ean_igual and codigo_fabricante_igual and fabricante_vazio:
+        return {
+            "pontuacao": 95,
+            "similaridade_nome": sim_nome,
+            "motivo": "EAN igual + código fabricante igual + fabricante/importador não informado",
+            "bloqueado": False,
+            "ean_igual": True,
+            "codigo_fabricante_igual": True,
+            "fabricante_igual": False,
+            "marca_igual": marca_igual,
+        }
+
+    if ean_igual and codigo_fabricante_igual and fabricante_divergente:
+        return {
+            "pontuacao": 90,
+            "similaridade_nome": sim_nome,
+            "motivo": "EAN igual + código fabricante igual, mas fabricante/importador divergente",
+            "bloqueado": False,
+            "ean_igual": True,
+            "codigo_fabricante_igual": True,
+            "fabricante_igual": False,
+            "marca_igual": marca_igual,
+        }
+
+    if codigo_fabricante_igual and fabricante_igual:
+        pontuacao = 92
+        motivo = "Código fabricante igual + fabricante/importador igual"
+
+    elif codigo_fabricante_igual and marca_igual:
+        pontuacao = 85
+        motivo = "Código fabricante igual + marca igual"
+
+    elif codigo_fabricante_igual:
+        pontuacao = 78
+        motivo = "Código fabricante igual"
+
+    elif codigo_site_igual and fabricante_igual:
+        pontuacao = 82
+        motivo = "Código do site igual + fabricante/importador igual"
+
+    elif codigo_site_igual and marca_igual:
+        pontuacao = 76
+        motivo = "Código do site igual + marca igual"
+
+    elif ean_igual and fabricante_igual:
+        pontuacao = 88
+        motivo = "EAN igual + fabricante/importador igual"
+
+    elif ean_igual and marca_igual:
+        pontuacao = 82
+        motivo = "EAN igual + marca igual"
+
+    elif ean_igual:
+        pontuacao = 75
+        motivo = "EAN igual sem confirmação de código/fabricante"
+
+    elif marca_igual and sim_nome >= 0.92:
+        pontuacao = 75
+        motivo = "Marca igual + nome muito parecido"
+
+    elif marca_igual and sim_nome >= 0.85:
+        pontuacao = 68
+        motivo = "Marca igual + nome parecido"
+
+    elif marca_igual and sim_nome >= 0.75:
+        pontuacao = 60
+        motivo = "Marca igual + nome parcialmente parecido"
+
+    else:
+        return {
+            "pontuacao": 0,
+            "similaridade_nome": sim_nome,
+            "motivo": "Sem evidência suficiente de vínculo",
+            "bloqueado": True,
+            "ean_igual": ean_igual,
+            "codigo_fabricante_igual": codigo_fabricante_igual,
+            "fabricante_igual": fabricante_igual,
+            "marca_igual": marca_igual,
+        }
+
+    if marca_divergente and not ean_igual and not codigo_fabricante_igual:
+        return {
+            "pontuacao": 0,
+            "similaridade_nome": sim_nome,
+            "motivo": f"Marca divergente: {marca_produto} x {marca_referencia}",
+            "bloqueado": True,
+            "ean_igual": ean_igual,
+            "codigo_fabricante_igual": codigo_fabricante_igual,
+            "fabricante_igual": fabricante_igual,
+            "marca_igual": False,
+        }
+
+    if fabricante_divergente and not ean_igual and not codigo_fabricante_igual:
+        return {
+            "pontuacao": 0,
+            "similaridade_nome": sim_nome,
+            "motivo": "Fabricante/importador divergente sem EAN ou código fabricante igual",
+            "bloqueado": True,
+            "ean_igual": ean_igual,
+            "codigo_fabricante_igual": codigo_fabricante_igual,
+            "fabricante_igual": False,
+            "marca_igual": marca_igual,
+        }
+
+    return {
+        "pontuacao": pontuacao,
+        "similaridade_nome": sim_nome,
+        "motivo": motivo,
+        "bloqueado": False,
+        "ean_igual": ean_igual,
+        "codigo_fabricante_igual": codigo_fabricante_igual,
+        "fabricante_igual": fabricante_igual,
+        "marca_igual": marca_igual,
+    }
 
 def sugestoes_vinculo(request):
     produtos = ProdutoColetado.objects.select_related(
@@ -1329,8 +1717,10 @@ def sugestoes_vinculo(request):
         produtos = produtos.filter(
             Q(nome_original__icontains=busca)
             | Q(codigo_fabricante__icontains=busca)
+            | Q(codigo_site__icontains=busca)
             | Q(ean__icontains=busca)
             | Q(url__icontains=busca)
+            | Q(marca__nome__icontains=busca)
         )
 
     try:
@@ -1343,10 +1733,40 @@ def sugestoes_vinculo(request):
     for produto in produtos.order_by("site__nome", "marca__nome", "nome_original"):
         sugestao = gerar_sugestao_para_produto(produto, referencias)
 
-        if sugestao and sugestao["confianca"] >= minimo_confianca_num:
-            sugestoes.append(sugestao)
+        if not sugestao:
+            continue
 
-    sugestoes.sort(key=lambda item: item["confianca"], reverse=True)
+        if sugestao.get("bloqueado"):
+            continue
+
+        confianca = sugestao.get("confianca")
+
+        if confianca is None:
+            confianca = sugestao.get("pontuacao", 0)
+
+        try:
+            confianca = float(confianca)
+        except Exception:
+            confianca = 0
+
+        sugestao["confianca"] = confianca
+
+        if confianca < minimo_confianca_num:
+            continue
+
+        sugestoes.append(sugestao)
+
+    sugestoes.sort(
+        key=lambda item: (
+            item.get("confianca", 0),
+            item.get("ean_igual", False),
+            item.get("codigo_fabricante_igual", False),
+            item.get("fabricante_igual", False),
+            item.get("marca_igual", False),
+            item.get("similaridade_nome", 0),
+        ),
+        reverse=True,
+    )
 
     contexto = {
         "sugestoes": sugestoes,
@@ -1356,7 +1776,6 @@ def sugestoes_vinculo(request):
     }
 
     return render(request, "mercado/sugestoes_vinculo.html", contexto)
-
 
 def aplicar_sugestao_vinculo(request, produto_id, referencia_id):
     if request.method != "POST":

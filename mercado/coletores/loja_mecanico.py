@@ -1,6 +1,8 @@
+import json
 import time
 import os
 import re
+from html import unescape
 from decimal import Decimal
 from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
 
@@ -31,6 +33,308 @@ def limpar_url(url):
     partes = urlsplit(url)
     return urlunsplit((partes.scheme, partes.netloc, partes.path, "", ""))
 
+
+def validar_gtin(codigo):
+    if not codigo:
+        return False
+
+    codigo = re.sub(r"\D", "", str(codigo))
+
+    if len(codigo) not in [8, 12, 13, 14]:
+        return False
+
+    if len(set(codigo)) == 1:
+        return False
+
+    digitos = [int(d) for d in codigo]
+    digito_verificador = digitos[-1]
+    corpo = digitos[:-1]
+
+    soma = 0
+    peso = 3
+
+    for digito in reversed(corpo):
+        soma += digito * peso
+        peso = 1 if peso == 3 else 3
+
+    calculado = (10 - (soma % 10)) % 10
+
+    return calculado == digito_verificador
+
+
+def normalizar_ean(valor):
+    if not valor:
+        return None
+
+    codigo = re.sub(r"\D", "", str(valor))
+
+    if validar_gtin(codigo):
+        return codigo
+
+    return None
+
+
+def procurar_ean_em_json_ld(objeto):
+    if isinstance(objeto, dict):
+        for chave in [
+            "gtin",
+            "gtin8",
+            "gtin12",
+            "gtin13",
+            "gtin14",
+            "ean",
+            "barcode",
+            "codigoBarras",
+            "codigo_barras",
+        ]:
+            valor = objeto.get(chave)
+
+            ean = normalizar_ean(valor)
+
+            if ean:
+                return ean
+
+        for valor in objeto.values():
+            ean = procurar_ean_em_json_ld(valor)
+
+            if ean:
+                return ean
+
+    elif isinstance(objeto, list):
+        for item in objeto:
+            ean = procurar_ean_em_json_ld(item)
+
+            if ean:
+                return ean
+
+    return None
+
+
+def gerar_variacoes_texto_json(texto):
+    if not texto:
+        return []
+
+    variacoes = []
+
+    texto_original = str(texto)
+    texto_unescape = unescape(texto_original)
+
+    variacoes.append(texto_original)
+    variacoes.append(texto_unescape)
+
+    # Remove escapes comuns de JSON dentro de string
+    variacoes.append(texto_original.replace('\\"', '"').replace("\\/", "/"))
+    variacoes.append(texto_unescape.replace('\\"', '"').replace("\\/", "/"))
+
+    # Evita repetição
+    resultado = []
+    vistos = set()
+
+    for item in variacoes:
+        if item not in vistos:
+            resultado.append(item)
+            vistos.add(item)
+
+    return resultado
+
+
+def buscar_valor_json_texto(texto, campo):
+    if not texto or not campo:
+        return None
+
+    for texto_base in gerar_variacoes_texto_json(texto):
+        # Campo string normal: "ean": "7908591710281"
+        padrao_string = rf'"{re.escape(campo)}"\s*:\s*"((?:\\.|[^"\\])*)"'
+        match = re.search(padrao_string, texto_base)
+
+        if match:
+            valor = match.group(1)
+
+            try:
+                return json.loads(f'"{valor}"')
+            except Exception:
+                return valor
+
+        # Campo string sem espaço: "ean":"7908591710281"
+        padrao_string_simples = rf'"{re.escape(campo)}"\s*:\s*"([^"]+)"'
+        match = re.search(padrao_string_simples, texto_base)
+
+        if match:
+            return match.group(1)
+
+        # Campo numérico: "precoBoleto": 92.9
+        padrao_numero = rf'"{re.escape(campo)}"\s*:\s*(-?\d+(?:\.\d+)?)'
+        match = re.search(padrao_numero, texto_base)
+
+        if match:
+            valor = match.group(1)
+
+            try:
+                if "." in valor:
+                    return Decimal(valor)
+                return int(valor)
+            except Exception:
+                return valor
+
+        # Campo nulo ou booleano
+        padrao_literal = rf'"{re.escape(campo)}"\s*:\s*(null|true|false)'
+        match = re.search(padrao_literal, texto_base)
+
+        if match:
+            valor = match.group(1)
+
+            if valor == "null":
+                return None
+
+            return valor == "true"
+
+    return None
+
+def extrair_dados_detalhe_loja_mecanico(html):
+    dados = {}
+
+    if not html:
+        return dados
+
+    # Primeiro tenta buscar pelo campo JSON "ean"
+    ean = normalizar_ean(buscar_valor_json_texto(html, "ean"))
+
+    # Segunda tentativa: procura diretamente padrões escapados ou normais
+    if not ean:
+        for texto_base in gerar_variacoes_texto_json(html):
+            match = re.search(
+                r'"ean"\s*:\s*"(\d{8,14})"',
+                texto_base,
+                flags=re.IGNORECASE,
+            )
+
+            if match:
+                ean = normalizar_ean(match.group(1))
+
+                if ean:
+                    break
+
+    if ean:
+        dados["ean"] = ean
+
+    nome = buscar_valor_json_texto(html, "nome")
+    nome_marca = buscar_valor_json_texto(html, "nomeMarca")
+    referencia = buscar_valor_json_texto(html, "referencia")
+
+    preco_tabela = buscar_valor_json_texto(html, "precoTabela")
+    preco_venda = buscar_valor_json_texto(html, "precoVenda")
+    preco_boleto = buscar_valor_json_texto(html, "precoBoleto")
+
+    qtde_parcelas = buscar_valor_json_texto(html, "qtdeParcelas")
+    valor_parcela = buscar_valor_json_texto(html, "valorParcela")
+
+    avaliacao = buscar_valor_json_texto(html, "avaliacao")
+    avaliacao_total = buscar_valor_json_texto(html, "avaliacaoTotal")
+    avaliacao_qtde = buscar_valor_json_texto(html, "avaliacaoQtde")
+
+    desconto_promocao = buscar_valor_json_texto(html, "descontoPromocao")
+    estoque = buscar_valor_json_texto(html, "estoque")
+
+    if nome:
+        nome_normalizado = normalizar_texto(nome)
+        dados["nome"] = nome_normalizado
+        dados["nome_original"] = nome_normalizado
+
+    if nome_marca:
+        marca_normalizada = normalizar_texto(nome_marca)
+        dados["marca"] = marca_normalizada
+        dados["marca_nome"] = marca_normalizada
+
+    if referencia:
+        dados["codigo_fabricante"] = normalizar_texto(referencia)
+
+    if preco_boleto is not None:
+        dados["preco_atual"] = converter_para_decimal(preco_boleto)
+
+    if preco_tabela is not None:
+        dados["preco_antigo"] = converter_para_decimal(preco_tabela)
+
+    if preco_venda is not None:
+        dados["preco_prazo"] = converter_para_decimal(preco_venda)
+
+    if qtde_parcelas is not None:
+        dados["quantidade_parcelas"] = qtde_parcelas
+
+    if valor_parcela is not None:
+        dados["valor_parcela"] = converter_para_decimal(valor_parcela)
+
+    if avaliacao is not None:
+        dados["nota"] = avaliacao
+
+    if avaliacao_total is not None:
+        dados["avaliacoes"] = avaliacao_total
+    elif avaliacao_qtde is not None:
+        dados["avaliacoes"] = avaliacao_qtde
+
+    if desconto_promocao is not None:
+        dados["desconto"] = desconto_promocao
+
+    if estoque is not None:
+        try:
+            dados["estoque"] = int(estoque)
+        except Exception:
+            dados["estoque"] = None
+
+    return dados
+
+
+def extrair_ean_do_html_detalhe(html):
+    dados = extrair_dados_detalhe_loja_mecanico(html)
+    return dados.get("ean")
+
+
+def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=0.8):
+    url_produto = produto.get("url") or produto.get("url_produto")
+
+    if not url_produto:
+        return produto
+
+    print(f"[INFO] Abrindo detalhe do produto: {url_produto}")
+
+    try:
+        driver.get(url_produto)
+        time.sleep(pausa)
+
+        html = driver.page_source
+
+        dados_detalhe = extrair_dados_detalhe_loja_mecanico(html)
+
+        if dados_detalhe.get("ean"):
+            print(f"[INFO] EAN encontrado: {dados_detalhe.get('ean')}")
+        else:
+            print("[INFO] EAN não encontrado no detalhe.")
+
+            try:
+                with open("debug_loja_mecanico_detalhe.html", "w", encoding="utf-8") as arquivo:
+                    arquivo.write(html)
+
+                print("[INFO] HTML salvo em debug_loja_mecanico_detalhe.html")
+            except Exception as erro_arquivo:
+                print(f"[WARN] Não consegui salvar HTML de debug: {erro_arquivo}")
+
+        for chave, valor in dados_detalhe.items():
+            if valor not in [None, ""]:
+                produto[chave] = valor
+
+    except Exception as erro:
+        print(f"[WARN] Não consegui enriquecer o detalhe: {url_produto}")
+        print(f"[WARN] Erro: {erro}")
+
+    return produto
+
+def converter_para_decimal(valor):
+    if valor is None or valor == "":
+        return None
+
+    try:
+        return Decimal(str(valor))
+    except Exception:
+        return None
 
 def converter_preco_para_decimal(texto_preco):
     if not texto_preco:
@@ -368,7 +672,128 @@ def localizar_indice_linha(linhas, texto, inicio=0):
 
     return None
 
-def extrair_produtos_do_html(html, limite=None):
+def montar_url_produto_loja_mecanico(item, url_base):
+    cod_produto = item.get("codProduto")
+    cod_categoria = item.get("codCategoria")
+    cod_subcategoria = item.get("codSubcategoria")
+    slug = item.get("slug")
+
+    if cod_produto and cod_categoria and cod_subcategoria and slug:
+        caminho = f"/produto/{cod_produto}/{cod_categoria}/{cod_subcategoria}/{slug}"
+        return urljoin(url_base, caminho)
+
+    return None
+
+def extrair_produtos_data_product(html, url_base, limite=None):
+    soup = BeautifulSoup(html, "html.parser")
+
+    container = soup.select_one("#view-product-list")
+
+    if not container:
+        return []
+
+    input_produtos = container.select_one(
+        "input.tagManagerProductImpression[data-product]"
+    )
+
+    if not input_produtos:
+        input_produtos = container.select_one(
+            "input.insiderProductImpression[data-product]"
+        )
+
+    if not input_produtos:
+        return []
+
+    data_product = input_produtos.get("data-product", "")
+
+    if not data_product:
+        return []
+
+    try:
+        itens = json.loads(data_product)
+    except Exception as erro:
+        print("[WARN] Não consegui ler o JSON de data-product da Loja do Mecânico.")
+        print(f"[WARN] Erro: {erro}")
+        return []
+
+    produtos = []
+
+    for item in itens:
+        if limite and len(produtos) >= limite:
+            break
+
+        nome = item.get("produto")
+        url = montar_url_produto_loja_mecanico(item, url_base)
+
+        if not nome or not url:
+            continue
+
+        preco_atual = item.get("billetPrice") or item.get("preco")
+        preco_prazo = item.get("preco")
+        preco_antigo = item.get("precode")
+
+        quantidade_parcelas = item.get("installmentPaymentQuantity") or item.get(
+            "quantidadeParcela"
+        )
+        valor_parcela = item.get("installmentPaymentValue")
+
+        codigo_fabricante = item.get("codigo")
+        marca_nome = item.get("nameManufacturer")
+
+        ranking = item.get("rowNum")
+
+        desconto = item.get("descontoPromocao")
+        nota = item.get("avaliacao")
+        avaliacoes = item.get("avaliacaoQtde")
+
+        nome_normalizado = normalizar_texto(nome)
+        marca_normalizada = normalizar_texto(marca_nome)
+        codigo_fabricante_normalizado = normalizar_texto(codigo_fabricante)
+
+        produtos.append(
+            {
+                "ranking": ranking,
+
+                # Usamos os dois nomes para compatibilidade com o restante do sistema
+                "nome": nome_normalizado,
+                "nome_original": nome_normalizado,
+
+                # Marca
+                "marca": marca_normalizada,
+               "marca_nome": marca_normalizada,
+
+                # Códigos
+                "codigo_fabricante": codigo_fabricante_normalizado,
+                "codigo_site": str(item.get("codProduto")) if item.get("codProduto") else None,
+
+                # EAN ainda será buscado no detalhe do produto
+                "ean": None,
+
+                # Preços
+                "preco_atual": converter_para_decimal(preco_atual),
+                "preco_antigo": converter_para_decimal(preco_antigo),
+                "preco_prazo": converter_para_decimal(preco_prazo),
+                "quantidade_parcelas": quantidade_parcelas,
+                "valor_parcela": converter_para_decimal(valor_parcela),
+
+                # Informações adicionais
+                "desconto": item.get("descontoPromocao"),
+                "nota": item.get("avaliacao"),
+                "avaliacoes": item.get("avaliacaoQtde"),
+
+                # URL
+                "url": url,
+               "fonte": "data-product",
+            }
+        )
+
+    return produtos
+
+def extrair_produtos_do_html(html, url_base, limite=None):
+    produtos_data_product = extrair_produtos_data_product(html, url_base, limite=limite)
+    if produtos_data_product:
+        return produtos_data_product
+    # Manté, a lógica antiga como fallback, caso alguma página não tenha data-product.
     soup = BeautifulSoup(html, "html.parser")
 
     linhas = [
@@ -555,7 +980,7 @@ def coletar_mais_vendidos(
         nome_fonte = "Mais vendidos"
 
     produtos_coletados = []
-    urls_ja_coletadas = set()
+    urls_coletadas = set()
 
     if limite is not None:
         try:
@@ -653,7 +1078,8 @@ def coletar_mais_vendidos(
 
             # Envia o HTML limpo obtido pelo Selenium para a sua função BeautifulSoup original
             produtos_da_pagina = extrair_produtos_do_html(
-                html_da_pagina,
+                driver.page_source,
+                url_pagina,
                 limite=itens_restantes,
             )
 
@@ -666,12 +1092,19 @@ def coletar_mais_vendidos(
             novos_nesta_pagina = 0
 
             for produto in produtos_da_pagina:
+                produto = enriquecer_produto_loja_com_detalhe(driver, produto)
+                
                 url_produto = produto.get("url")
 
-                if not url_produto or url_produto in urls_ja_coletadas:
+                if not url_produto:
                     continue
 
-                urls_ja_coletadas.add(url_produto)
+                if url_produto in urls_coletadas:
+                    continue
+
+                produtos_coletados.append(produto)
+                urls_coletadas.add(url_produto)
+                novos_nesta_pagina += 1
 
                 # Ajusta o ranking dinamicamente baseado no total acumulado
                 produto["ranking_geral"] = len(produtos_coletados) + 1
