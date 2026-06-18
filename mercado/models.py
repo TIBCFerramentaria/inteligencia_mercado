@@ -476,6 +476,13 @@ class AlvoColeta(models.Model):
         help_text="Qual coletor será usado para esta URL.",
     )
 
+    servico_coleta = models.CharField(
+        max_length=50,
+        default="servico_01",
+        db_index=True,
+        help_text="Identificador do agente/serviço responsável por executar este alvo. Ex: servico_01.",
+    )
+
     nome_fonte = models.CharField(
         max_length=255,
         help_text="Nome da fonte que aparecerá nos relatórios. Ex: Dutra - Alicates.",
@@ -533,7 +540,7 @@ class AlvoColeta(models.Model):
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["ordem", "id"]
+        ordering = ["servico_coleta", "ordem", "id"]
         verbose_name = "Alvo de coleta"
         verbose_name_plural = "Alvos de coleta"
 

@@ -173,6 +173,7 @@ class ExecucaoColetaAdmin(admin.ModelAdmin):
 @admin.register(AlvoColeta)
 class AlvoColetaAdmin(admin.ModelAdmin):
     list_display = (
+        "servico_coleta",
         "nome",
         "coletor",
         "nome_fonte",
@@ -185,6 +186,7 @@ class AlvoColetaAdmin(admin.ModelAdmin):
     )
 
     list_filter = (
+        "servico_coleta",
         "coletor",
         "ativo",
         "ultima_situacao",
@@ -193,12 +195,14 @@ class AlvoColetaAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
+        "servico_coleta",
         "nome",
         "nome_fonte",
         "url",
     )
 
     ordering = (
+        "servico_coleta",
         "ordem",
         "id",
     )

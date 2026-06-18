@@ -28,6 +28,13 @@ class Command(BaseCommand):
         )
 
         parser.add_argument(
+            "--servico",
+            type=str,
+            default=None,
+            help="Executa apenas os alvos vinculados a um serviço específico. Ex: servico_01",
+        )
+
+        parser.add_argument(
             "--limite",
             type=int,
             help="Sobrescreve o limite configurado nos alvos.",
@@ -46,10 +53,16 @@ class Command(BaseCommand):
         limite_override = options.get("limite")
         max_paginas_override = options.get("max_paginas")
 
-        alvos = AlvoColeta.objects.filter(ativo=True).order_by("ordem", "id")
+        alvos = AlvoColeta.objects.filter(ativo=True).order_by("servico_coleta", "ordem", "id")
+
+        coletor = options.get("coletor")
+        servico = options.get("servico")
 
         if coletor_filtrado:
             alvos = alvos.filter(coletor=coletor_filtrado)
+
+        if servico:
+            alvos = alvos.filter(servico_coleta=servico)
 
         total_alvos = alvos.count()
 
@@ -163,3 +176,4 @@ class Command(BaseCommand):
         self.stdout.write(f"[INFO] Sucessos: {sucessos}")
         self.stdout.write(f"[INFO] Erros: {erros}")
         self.stdout.write("=" * 80)
+
