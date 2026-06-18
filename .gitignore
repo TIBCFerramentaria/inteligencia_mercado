@@ -26,3 +26,7 @@ local_settings.py
 # Excel exportado
 *.xlsx
 *.csv
+
+.env
+backups/
+*.sqlite3
