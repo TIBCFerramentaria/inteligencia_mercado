@@ -30,3 +30,12 @@ local_settings.py
 .env
 backups/
 *.sqlite3
+
+cat <<'EOF' >> .gitignore
+
+# Arquivos de diagnóstico dos coletores
+debug_*.html
+debug_*.png
+debug_*.txt
+teste_uc_kennedy.py
+EOF

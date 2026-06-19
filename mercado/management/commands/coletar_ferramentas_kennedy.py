@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from mercado.coletores.dutra_maquinas import coletar_produtos_dutra
+from mercado.coletores.ferramentas_kennedy import coletar_produtos_ferramentas_kennedy
 from mercado.models import (
     SiteMonitorado,
     Categoria,
@@ -13,20 +13,20 @@ from mercado.models import (
 
 
 class Command(BaseCommand):
-    help = "Coleta produtos da Dutra Máquinas a partir de uma URL pública."
+    help = "Coleta produtos da Ferramentas Kennedy a partir de uma URL pública."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--url",
             type=str,
             required=True,
-            help="URL da página de categoria, busca ou listagem da Dutra Máquinas.",
+            help="URL da página de categoria, busca ou listagem da Ferramentas Kennedy.",
         )
 
         parser.add_argument(
             "--fonte",
             type=str,
-            default="Dutra Máquinas",
+            default="Ferramentas Kennedy",
             help="Nome descritivo da fonte coletada.",
         )
 
@@ -58,7 +58,7 @@ class Command(BaseCommand):
         dry_run = options.get("dry_run")
 
         self.stdout.write(
-            f"Iniciando coleta da Dutra Máquinas. "
+            f"Iniciando coleta da Ferramentas Kennedy. "
             f"Fonte: {nome_fonte}. "
             f"URL: {url_base}. "
             f"Limite: {limite}. "
@@ -67,9 +67,9 @@ class Command(BaseCommand):
         )
 
         site, _criado = SiteMonitorado.objects.get_or_create(
-            nome="Dutra Máquinas",
+            nome="Ferramentas Kennedy",
             defaults={
-                "url_base": "https://www.dutramaquinas.com.br/",
+                "url_base": "https://www.ferramentaskennedy.com.br/",
                 "ativo": True,
             },
         )
@@ -86,7 +86,7 @@ class Command(BaseCommand):
         coletas_gravadas = 0
 
         try:
-            produtos = coletar_produtos_dutra(
+            produtos = coletar_produtos_ferramentas_kennedy(
                 url_base=url_base,
                 limite=limite,
                 max_paginas=max_paginas,
@@ -98,24 +98,27 @@ class Command(BaseCommand):
             self.stdout.write(f"Produtos encontrados: {len(produtos)}")
 
             if dry_run:
-                for indice, item in enumerate(produtos, start=1):
-                    self.stdout.write("-" * 80)
-                    self.stdout.write(f"Produto {indice}: {item.get('nome_original')}")
-                    self.stdout.write(f"URL: {item.get('url')}")
-                    self.stdout.write(f"Código site: {item.get('codigo_site')}")
-                    self.stdout.write(f"Marca: {item.get('marca_nome')}")
-                    self.stdout.write(f"Código fabricante: {item.get('codigo_fabricante')}")
-                    self.stdout.write(f"Preço atual: {item.get('preco_atual')}")
-                    self.stdout.write(f"Preço antigo: {item.get('preco_antigo')}")
-                    self.stdout.write(f"Preço a prazo: {item.get('preco_prazo')}")
-                    self.stdout.write(f"Parcelas: {item.get('quantidade_parcelas')}")
-                    self.stdout.write(f"Valor parcela: {item.get('valor_parcela')}")
-                    self.stdout.write(f"Ranking: {item.get('ranking_geral')}")
-                    self.stdout.write(f"Estoque: {item.get('estoque')}")
+                self.stdout.write(f"Produtos encontrados: {len(produtos)}")
 
-                execucao.status = "DRY_RUN"
-                execucao.data_fim = timezone.now()
-                execucao.save()
+                for indice, produto in enumerate(produtos, start=1):
+                    ranking = produto.get("ranking") or indice
+
+                    self.stdout.write("-" * 80)
+                    self.stdout.write(
+                        f"Produto {indice}: {produto.get('nome') or produto.get('nome_original')}"
+                    )
+                    self.stdout.write(f"URL: {produto.get('url')}")
+                    self.stdout.write(f"Código site: {produto.get('codigo_site')}")
+                    self.stdout.write(f"Marca: {produto.get('marca_nome')}")
+                    self.stdout.write(f"Código fabricante: {produto.get('codigo_fabricante')}")
+                    self.stdout.write(f"EAN: {produto.get('ean')}")
+                    self.stdout.write(f"Preço atual: {produto.get('preco_atual')}")
+                    self.stdout.write(f"Preço antigo: {produto.get('preco_antigo')}")
+                    self.stdout.write(f"Preço a prazo: {produto.get('preco_prazo')}")
+                    self.stdout.write(f"Parcelas: {produto.get('quantidade_parcelas')}")
+                    self.stdout.write(f"Valor parcela: {produto.get('valor_parcela')}")
+                    self.stdout.write(f"Ranking: {produto.get('ranking') or indice}")
+                    self.stdout.write(f"Estoque: {produto.get('estoque')}")
 
                 return
 
@@ -134,19 +137,44 @@ class Command(BaseCommand):
                         nome=item.get("marca_nome")
                     )
 
-                produto, criado = ProdutoColetado.objects.update_or_create(
-                    site=site,
-                    url=item.get("url"),
-                    defaults={
-                        "nome_original": item.get("nome_original"),
-                        "codigo_site": item.get("codigo_site"),
-                        "codigo_fabricante": item.get("codigo_fabricante"),
-                        "ean": item.get("ean"),
-                        "marca": marca,
-                        "categoria": categoria,
-                        "ativo": True,
-                    },
-                )
+                url_produto = item.get("url") or ""
+                codigo_site = item.get("codigo_site") or ""
+
+                if not url_produto and not codigo_site:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"Produto ignorado por falta de URL e código: {item.get('nome') or item.get('nome_original')}"
+                        )
+                    )
+                    continue
+
+                defaults_produto = {
+                    "nome_original": item.get("nome") or item.get("nome_original") or "",
+                    "codigo_site": codigo_site,
+                    "codigo_fabricante": item.get("codigo_fabricante") or codigo_site,
+                    "ean": item.get("ean") or "",
+                    "status_vinculo": "PENDENTE",
+                    "ativo": True,
+                }
+
+                if marca:
+                    defaults_produto["marca"] = marca
+
+                if categoria:
+                    defaults_produto["categoria"] = categoria
+
+                if url_produto:
+                    produto, criado = ProdutoColetado.objects.update_or_create(
+                        site=site,
+                        url=url_produto,
+                        defaults=defaults_produto,
+                    )
+                else:
+                    produto, criado = ProdutoColetado.objects.update_or_create(
+                        site=site,
+                        codigo_site=codigo_site,
+                        defaults=defaults_produto,
+                    )
 
                 if criado:
                     produtos_novos += 1
@@ -163,8 +191,8 @@ class Command(BaseCommand):
                     desconto_percentual=item.get("desconto_percentual"),
                     nota_media=item.get("nota_media"),
                     quantidade_avaliacoes=item.get("quantidade_avaliacoes"),
-                    ranking_geral=item.get("ranking_geral"),
-                    ranking_categoria=item.get("ranking_categoria"),
+                    ranking_geral=item.get("ranking"),
+                    ranking_categoria=item.get("ranking"),
                     disponivel=item.get("disponivel", True),
                     estoque=item.get("estoque"),
                     texto_disponibilidade=item.get("texto_disponibilidade"),

@@ -288,7 +288,7 @@ def extrair_ean_do_html_detalhe(html):
     return dados.get("ean")
 
 
-def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=0.8):
+def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=2):
     url_produto = produto.get("url") or produto.get("url_produto")
 
     if not url_produto:

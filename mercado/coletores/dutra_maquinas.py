@@ -1,5 +1,6 @@
 import time
 import re
+import os
 from decimal import Decimal
 from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
 
@@ -7,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium_stealth import stealth
 
 
 URL_BASE_DUTRA = "https://www.dutramaquinas.com.br/"
@@ -636,12 +638,17 @@ def extrair_dados_detalhe_produto(html):
         codigo_produto = codigo_produto.replace("Cod.", "")
         codigo_produto = codigo_produto.strip("()")
 
+    estoque = extrair_estoque_dutra_html(html)
+
+    if estoque is not None:
+        dados["estoque"] = estoque
+
     return {
         "marca_nome": marca_nome,
         "codigo_produto": codigo_produto,
     }
 
-def enriquecer_produto_com_detalhe(driver, produto, pausa=0.4):
+def enriquecer_produto_com_detalhe(driver, produto, pausa=1.5):
     url_produto = produto.get("url") or produto.get("url_produto")
 
     if not url_produto:
@@ -651,10 +658,15 @@ def enriquecer_produto_com_detalhe(driver, produto, pausa=0.4):
         driver.get(url_produto)
         time.sleep(pausa)
 
-        dados_detalhe = extrair_dados_detalhe_produto(driver.page_source)
+        html = driver.page_source
+        dados_detalhe = extrair_dados_detalhe_produto(html)
 
         marca_nome = dados_detalhe.get("marca_nome")
         codigo_produto = dados_detalhe.get("codigo_produto")
+
+        for chave, valor in dados_detalhe.items():
+            if valor not in [None, ""]:
+                produto[chave] = valor
 
         if marca_nome:
             produto["marca_nome"] = marca_nome
@@ -695,34 +707,46 @@ def coletar_produtos_dutra(
         except Exception:
             max_paginas = 20
 
+    print("[INFO] Configurando o navegador Chrome com Selenium-Stealth e extensão hCaptcha...")
+    
+    # --- CONFIGURAÇÃO DO SELENIUM E EXTENSÃO HCAPTCHA SOLVER ---
     options = Options()
     options.add_argument("start-maximized")
+
+    # Aponta para a pasta onde está a extensão extraída do GitHub
+    caminho_extensao = os.path.abspath("./hektcaptcha")
+    options.add_argument(f"--load-extension={caminho_extensao}")
+
+    # Remove os alertas visuais e travas de automação do Chrome
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
 
     driver = webdriver.Chrome(options=options)
 
     url_pagina = url_base
 
+    # Aplica as camuflagens do Selenium-Stealth no navegador
+    stealth(driver,
+            languages=["pt-BR", "pt"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True)
+
+    url_pagina = url_base
+
     try:
         for numero_pagina in range(1, max_paginas + 1):
-            url_pagina = montar_url_dutra_pagina(
-                url_base,
-                numero_pagina,
-                )
-            if limite and len(produtos_coletados) >= limite:
-                print(f"[INFO] Limite de {limite} produtos atingido.")
-                break
-
-            print("=" * 80)
-            print(f"[INFO] Fonte: {nome_fonte}")
             print(f"[INFO] Acessando página {numero_pagina}: {url_pagina}")
-            print("=" * 80)
-
+            
+            # --- INÍCIO DA LÓGICA ORIGINAL DE COLETA DA DUTRA MÁQUINAS ---
             try:
                 driver.get(url_pagina)
-                time.sleep(5)
             except Exception as erro:
                 print(f"[ERRO] Falha ao abrir página {numero_pagina}: {erro}")
                 break
+            time.sleep(5)
 
             html_da_pagina = driver.page_source or ""
             html_minusculo = html_da_pagina.lower()
@@ -739,7 +763,7 @@ def coletar_produtos_dutra(
             produtos_da_pagina = extrair_produtos_do_html(
                 html_da_pagina,
                 url_base=url_pagina,
-                limite=itens_restantes,
+                limite=itens_restantes
             )
 
             print(f"[INFO] Produtos extraídos da página {numero_pagina}: {len(produtos_da_pagina)}")
@@ -778,7 +802,7 @@ def coletar_produtos_dutra(
             if limite and len(produtos_coletados) >= limite:
                 print(f"[INFO] Limite de {limite} produtos atingido.")
                 break
-
+            
     finally:
         print("[INFO] Fechando navegador...")
         driver.quit()
@@ -786,3 +810,204 @@ def coletar_produtos_dutra(
     print(f"[INFO] Coleta finalizada. Total de produtos coletados: {len(produtos_coletados)}")
 
     return produtos_coletados
+
+def normalizar_estoque(valor):
+    if valor is None or valor == "":
+        return None
+
+    try:
+        return int(float(str(valor).strip()))
+    except Exception:
+        return None
+
+
+def extrair_estoque_dutra_html(html):
+    if not html:
+        return None
+
+    texto = str(html)
+
+    padroes = [
+        r'"estoque"\s*:\s*"?(\d+)"?',
+        r"'estoque'\s*:\s*'?(\d+)'?",
+        r"estoque\s*[:=]\s*'?\"?(\d+)'?\"?",
+        r'"stock"\s*:\s*"?(\d+)"?',
+        r'"saldo"\s*:\s*"?(\d+)"?',
+        r'"saldoEstoque"\s*:\s*"?(\d+)"?',
+        r'"quantidadeDisponivel"\s*:\s*"?(\d+)"?',
+    ]
+
+    for padrao in padroes:
+        match = re.search(padrao, texto, flags=re.IGNORECASE)
+
+        if match:
+            estoque = normalizar_estoque(match.group(1))
+
+            if estoque is not None:
+                return estoque
+
+    return None
+
+
+def extrair_estoque_dutra_runtime(driver):
+    """
+    Tenta consultar o estoque pelo JavaScript já carregado na página da Dutra.
+
+    Suporta:
+    - retorno direto
+    - retorno como Promise
+    - estoque dentro de objetos internos
+    """
+
+    script = """
+    const callback = arguments[arguments.length - 1];
+
+    function normalizarNumero(valor) {
+        if (valor === null || valor === undefined || valor === "") {
+            return null;
+        }
+
+        const numero = Number(String(valor).replace(",", "."));
+
+        if (Number.isNaN(numero)) {
+            return null;
+        }
+
+        return Math.trunc(numero);
+    }
+
+    function buscarEstoque(obj, profundidade = 0) {
+        if (obj === null || obj === undefined || profundidade > 6) {
+            return null;
+        }
+
+        if (typeof obj !== "object") {
+            return null;
+        }
+
+        const chavesPossiveis = [
+            "estoque",
+            "stock",
+            "saldo",
+            "saldoEstoque",
+            "quantidade",
+            "quantidadeDisponivel",
+            "estoqueDisponivel"
+        ];
+
+        for (const chave of chavesPossiveis) {
+            if (Object.prototype.hasOwnProperty.call(obj, chave)) {
+                const valor = normalizarNumero(obj[chave]);
+
+                if (valor !== null) {
+                    return valor;
+                }
+            }
+        }
+
+        if (Array.isArray(obj)) {
+            for (const item of obj) {
+                const valor = buscarEstoque(item, profundidade + 1);
+
+                if (valor !== null) {
+                    return valor;
+                }
+            }
+        } else {
+            for (const chave of Object.keys(obj)) {
+                const valor = buscarEstoque(obj[chave], profundidade + 1);
+
+                if (valor !== null) {
+                    return valor;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    try {
+        const bat = window.Bat || (typeof Bat !== "undefined" ? Bat : null);
+
+        if (!bat) {
+            callback({
+                estoque: null,
+                motivo: "Bat não encontrado",
+                batTipo: typeof window.Bat
+            });
+            return;
+        }
+
+        if (typeof bat.jy !== "function") {
+            callback({
+                estoque: null,
+                motivo: "Bat.jy não é função",
+                batKeys: Object.keys(bat).slice(0, 50)
+            });
+            return;
+        }
+
+        let retorno = bat.jy();
+
+        Promise.resolve(retorno)
+            .then(function(resultado) {
+                const estoque = buscarEstoque(resultado);
+
+                let chaves = null;
+                let retornoTexto = null;
+
+                try {
+                    if (resultado && typeof resultado === "object") {
+                        chaves = Object.keys(resultado).slice(0, 50);
+                        retornoTexto = JSON.stringify(resultado).slice(0, 2000);
+                    } else {
+                        retornoTexto = String(resultado).slice(0, 2000);
+                    }
+                } catch (e) {
+                    retornoTexto = "Não foi possível converter retorno em texto.";
+                }
+
+                callback({
+                    estoque: estoque,
+                    motivo: estoque === null ? "Estoque não encontrado no retorno" : "Estoque encontrado",
+                    batJyLength: bat.jy.length,
+                    retornoTipo: typeof resultado,
+                    retornoKeys: chaves,
+                    retornoTexto: retornoTexto
+                });
+            })
+            .catch(function(erro) {
+                callback({
+                    estoque: null,
+                    motivo: "Erro ao resolver Promise de Bat.jy",
+                    erro: String(erro),
+                    batJyLength: bat.jy.length
+                });
+            });
+
+    } catch (erro) {
+        callback({
+            estoque: null,
+            motivo: "Erro ao executar Bat.jy",
+            erro: String(erro)
+        });
+    }
+    """
+
+    try:
+        resultado = driver.execute_async_script(script)
+
+        if isinstance(resultado, dict):
+            estoque = normalizar_estoque(resultado.get("estoque"))
+
+            if estoque is not None:
+                return estoque
+
+            print("[DEBUG] Bat.jy não retornou estoque diretamente:")
+            print(resultado)
+
+        return None
+
+    except Exception as erro:
+        print(f"[DEBUG] Erro ao consultar Bat.jy: {erro}")
+        return None
