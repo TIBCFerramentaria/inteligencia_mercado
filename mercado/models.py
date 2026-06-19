@@ -459,6 +459,7 @@ class AlvoColeta(models.Model):
     class Coletor(models.TextChoices):
         LOJA_MECANICO = "loja_mecanico", "Loja do Mecânico"
         DUTRA_MAQUINAS = "dutra_maquinas", "Dutra Máquinas"
+        FERRAMENTAS_KENNEDY = "ferramentas_kennedy", "Ferramentas Kennedy"
 
     class SituacaoUltimaExecucao(models.TextChoices):
         PENDENTE = "PENDENTE", "Pendente"
