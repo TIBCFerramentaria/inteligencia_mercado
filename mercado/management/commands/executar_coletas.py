@@ -78,6 +78,8 @@ class Command(BaseCommand):
         mapa_comandos = {
             AlvoColeta.Coletor.LOJA_MECANICO: "coletar_loja_mecanico",
             AlvoColeta.Coletor.DUTRA_MAQUINAS: "coletar_dutra_maquinas",
+            AlvoColeta.Coletor.FERRAMENTAS_KENNEDY: "coletar_ferramentas_kennedy",
+            AlvoColeta.Coletor.PALACIO_FERRAMENTAS: "coletar_palacio_ferramentas",
         }
 
         sucessos = 0

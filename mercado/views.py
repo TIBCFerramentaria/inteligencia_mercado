@@ -1781,27 +1781,56 @@ def aplicar_sugestao_vinculo(request, produto_id, referencia_id):
     if request.method != "POST":
         return redirect("mercado:sugestoes_vinculo")
 
-    produto = get_object_or_404(ProdutoColetado, id=produto_id)
-    referencia = get_object_or_404(ProdutoReferencia, id=referencia_id)
+    produto = get_object_or_404(
+        ProdutoColetado.objects.select_related("marca", "categoria"),
+        id=produto_id,
+    )
+
+    referencia = get_object_or_404(
+        ProdutoReferencia.objects.select_related("marca", "categoria"),
+        id=referencia_id,
+    )
+
+    campos_atualizados = [
+        "produto_referencia",
+        "status_vinculo",
+    ]
 
     produto.produto_referencia = referencia
     produto.status_vinculo = "VINCULADO"
 
-    # Se o produto coletado estiver sem marca/categoria, aproveita a referência.
     if not produto.marca and referencia.marca:
         produto.marca = referencia.marca
+        campos_atualizados.append("marca")
 
     if not produto.categoria and referencia.categoria:
         produto.categoria = referencia.categoria
+        campos_atualizados.append("categoria")
 
-    # Se estiver sem código/EAN, aproveita a referência oficial.
     if not produto.codigo_fabricante and referencia.codigo_fabricante:
         produto.codigo_fabricante = referencia.codigo_fabricante
+        campos_atualizados.append("codigo_fabricante")
 
     if not produto.ean and referencia.ean:
         produto.ean = referencia.ean
+        campos_atualizados.append("ean")
 
-    produto.save()
+    if hasattr(produto, "atualizado_em"):
+        campos_atualizados.append("atualizado_em")
+
+    produto.save(update_fields=campos_atualizados)
+
+    messages.success(
+        request,
+        f"Produto '{produto.nome_original}' vinculado à referência '{referencia.nome_referencia}'."
+    )
+
+    proxima_url = request.POST.get("next") or request.META.get("HTTP_REFERER")
+
+    if proxima_url:
+        return redirect(proxima_url)
+
+    return redirect("mercado:sugestoes_vinculo")
 
     messages.success(
         request,

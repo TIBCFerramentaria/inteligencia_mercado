@@ -243,9 +243,12 @@
                     <td>{{ sugestao.referencia.ean|default:"-" }}</td>
 
                     <td>
-                        <form method="post" action="/validacao/sugestoes/aplicar/{{ sugestao.produto.id }}/{{ sugestao.referencia.id }}/">
+                        <form method="post" action="{% url 'mercado:aplicar_sugestao_vinculo' produto.id sugestao.referencia.id %}">
                             {% csrf_token %}
-                            <button class="botao-aplicar" type="submit">Aplicar vínculo</button>
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <button type="submit" class="btn btn-success btn-sm">
+                                Aplicar vínculo
+                            </button>
                         </form>
                     </td>
                 </tr>
