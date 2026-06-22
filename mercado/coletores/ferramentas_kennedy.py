@@ -5,6 +5,11 @@ import re
 import time
 import certifi
 from urllib.parse import urljoin, urlparse
+from mercado.coletores.debug_utils import (
+    salvar_debug_texto,
+    salvar_debug_screenshot,
+    debug_coletores_ativo,
+)
 
 
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
@@ -79,12 +84,13 @@ def salvar_diagnostico_rede_kennedy(
     arquivo_respostas="debug_kennedy_performa_responses.txt",
 ):
     """
-    Lê os logs de performance UMA ÚNICA VEZ.
+    Lê os logs de performance apenas quando COLETORES_DEBUG=1.
 
-    Salva:
-    - todas as URLs chamadas pela página
-    - os corpos das respostas da Performa AI, quando disponíveis
+    Em uso normal, retorna listas vazias para não deixar a coleta lenta.
     """
+
+    if not debug_coletores_ativo():
+        return [], []
 
     urls = []
     respostas = []
@@ -149,18 +155,20 @@ def salvar_diagnostico_rede_kennedy(
         if url not in urls_unicas:
             urls_unicas.append(url)
 
-    with open(arquivo_urls, "w", encoding="utf-8") as arquivo:
-        for url in urls_unicas:
-            arquivo.write(url + "\n")
+    conteudo_urls = "\n".join(urls_unicas)
 
-    with open(arquivo_respostas, "w", encoding="utf-8") as arquivo:
-        for indice, item in enumerate(respostas, start=1):
-            arquivo.write("=" * 120 + "\n")
-            arquivo.write(f"RESPOSTA {indice}\n")
-            arquivo.write(f"URL: {item['url']}\n")
-            arquivo.write("-" * 120 + "\n")
-            arquivo.write(item["body"][:30000])
-            arquivo.write("\n\n")
+    conteudo_respostas = ""
+
+    for indice, item in enumerate(respostas, start=1):
+        conteudo_respostas += "=" * 120 + "\n"
+        conteudo_respostas += f"RESPOSTA {indice}\n"
+        conteudo_respostas += f"URL: {item['url']}\n"
+        conteudo_respostas += "-" * 120 + "\n"
+        conteudo_respostas += item["body"][:30000]
+        conteudo_respostas += "\n\n"
+
+    salvar_debug_texto(arquivo_urls, conteudo_urls)
+    salvar_debug_texto(arquivo_respostas, conteudo_respostas)
 
     print(f"[DEBUG] URLs de rede salvas em {arquivo_urls}. Total: {len(urls_unicas)}")
     print(f"[DEBUG] Respostas Performa salvas em {arquivo_respostas}. Total: {len(respostas)}")
@@ -1213,16 +1221,8 @@ def coletar_produtos_ferramentas_kennedy(
     def tratar_bloqueio(html, mensagem):
         print(f"[WARN] {mensagem}")
 
-        try:
-            with open("debug_kennedy_bloqueio.html", "w", encoding="utf-8") as arquivo:
-                arquivo.write(html or "")
-        except Exception as erro:
-            print(f"[WARN] Não consegui salvar debug_kennedy_bloqueio.html: {erro}")
-
-        try:
-            driver.save_screenshot("debug_kennedy_bloqueio.png")
-        except Exception as erro:
-            print(f"[WARN] Não consegui salvar debug_kennedy_bloqueio.png: {erro}")
+        salvar_debug_texto("debug_kennedy_bloqueio.html", html or "")
+        salvar_debug_screenshot("debug_kennedy_bloqueio.png", driver)
 
         if falhar_se_bloqueado:
             raise RuntimeError(mensagem)
@@ -1281,13 +1281,7 @@ def coletar_produtos_ferramentas_kennedy(
 
             # Salva HTML para análise.
             if pagina == 1:
-                try:
-                    with open("debug_kennedy_listagem.html", "w", encoding="utf-8") as arquivo:
-                        arquivo.write(html)
-
-                    print("[DEBUG] HTML da listagem Kennedy salvo em debug_kennedy_listagem.html")
-                except Exception as erro:
-                    print(f"[WARN] Não consegui salvar debug_kennedy_listagem.html: {erro}")
+                salvar_debug_texto("debug_kennedy_listagem.html", html)
 
             # Captura rede e respostas Performa.
             urls_rede = []

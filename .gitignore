@@ -5,9 +5,9 @@
 db.sqlite3
 
 # Arquivos Python
-__pycache__/
 *.py[cod]
 *$py.class
+
 
 # Django
 *.log

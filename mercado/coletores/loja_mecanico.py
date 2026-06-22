@@ -5,6 +5,7 @@ import re
 from html import unescape
 from decimal import Decimal
 from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
+from mercado.coletores.debug_utils import salvar_debug_texto
 
 # IMPORTANTE: Removido 'import requests' para a coleta da página,
 # pois agora usamos o Selenium para gerenciar o tráfego com segurança.
@@ -17,6 +18,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
+
 
 
 URL_MAIS_VENDIDOS = "https://www.lojadomecanico.com.br/hotsite/maisvendidos"
@@ -309,13 +311,7 @@ def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=2):
         else:
             print("[INFO] EAN não encontrado no detalhe.")
 
-            try:
-                with open("debug_loja_mecanico_detalhe.html", "w", encoding="utf-8") as arquivo:
-                    arquivo.write(html)
-
-                print("[INFO] HTML salvo em debug_loja_mecanico_detalhe.html")
-            except Exception as erro_arquivo:
-                print(f"[WARN] Não consegui salvar HTML de debug: {erro_arquivo}")
+            salvar_debug_texto("debug_loja_mecanico_detalhe.html", html)
 
         for chave, valor in dados_detalhe.items():
             if valor not in [None, ""]:

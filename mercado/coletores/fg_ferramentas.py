@@ -2,6 +2,7 @@ import json
 import re
 import time
 from urllib.parse import urlparse
+from mercado.coletores.debug_utils import salvar_debug_texto, salvar_debug_json
 
 import requests
 
@@ -170,11 +171,7 @@ def buscar_pagina_api_vtex(session, url_categoria, inicio, fim):
     print(f"[DEBUG] Status HTTP API FG: {resposta.status_code}")
 
     if resposta.status_code not in [200, 206]:
-        try:
-            with open("debug_fg_api_erro.txt", "w", encoding="utf-8") as arquivo:
-                arquivo.write(resposta.text)
-        except Exception:
-            pass
+        salvar_debug_texto("debug_fg_api_erro.html", resposta.text)
 
         print(f"[WARN] API FG retornou status {resposta.status_code}.")
         return []
@@ -184,19 +181,9 @@ def buscar_pagina_api_vtex(session, url_categoria, inicio, fim):
     except Exception as erro:
         print(f"[WARN] Erro ao interpretar JSON da API FG: {erro}")
 
-        try:
-            with open("debug_fg_api_resposta.txt", "w", encoding="utf-8") as arquivo:
-                arquivo.write(resposta.text)
-        except Exception:
-            pass
+        salvar_debug_texto("debug_fg_api_erro.html", resposta.text)
 
         return []
-
-    try:
-        with open("debug_fg_api.json", "w", encoding="utf-8") as arquivo:
-            json.dump(dados, arquivo, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
 
     if not isinstance(dados, list):
         print("[WARN] Resposta da API FG não veio como lista.")

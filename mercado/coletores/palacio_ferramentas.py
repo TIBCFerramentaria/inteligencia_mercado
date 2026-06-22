@@ -2,6 +2,7 @@ import re
 import json
 import time
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
+from mercado.coletores.debug_utils import salvar_debug_texto
 
 import requests
 from bs4 import BeautifulSoup
@@ -248,11 +249,7 @@ def enriquecer_produto_com_detalhe_palacio(session, produto):
             )
             return produto
 
-        try:
-            with open("debug_palacio_detalhe.html", "w", encoding="utf-8") as arquivo:
-                arquivo.write(resposta.text)
-        except Exception as erro:
-            print(f"[WARN] Não consegui salvar debug_palacio_detalhe.html: {erro}")
+        salvar_debug_texto("debug_palacio_detalhe.html", resposta.text)
 
         codigo_fabricante = extrair_referencia_detalhe_palacio(resposta.text)
         ean = extrair_ean_detalhe_palacio(resposta.text)
@@ -587,13 +584,7 @@ def coletar_produtos_palacio_ferramentas(
         html = resposta.text
 
         if pagina == 1:
-            try:
-                with open("debug_palacio_listagem.html", "w", encoding="utf-8") as arquivo:
-                    arquivo.write(html)
-
-                print("[DEBUG] HTML salvo em debug_palacio_listagem.html")
-            except Exception as erro:
-                print(f"[WARN] Não consegui salvar debug_palacio_listagem.html: {erro}")
+            salvar_debug_texto("debug_palacio_listagem.html", html)
 
         produtos_pagina = extrair_produtos_html_palacio(
             html=html,
