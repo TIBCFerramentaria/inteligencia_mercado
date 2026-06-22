@@ -80,6 +80,7 @@ class Command(BaseCommand):
             AlvoColeta.Coletor.DUTRA_MAQUINAS: "coletar_dutra_maquinas",
             AlvoColeta.Coletor.FERRAMENTAS_KENNEDY: "coletar_ferramentas_kennedy",
             AlvoColeta.Coletor.PALACIO_FERRAMENTAS: "coletar_palacio_ferramentas",
+            AlvoColeta.Coletor.FG_FERRAMENTAS: "coletar_fg",
         }
 
         sucessos = 0
