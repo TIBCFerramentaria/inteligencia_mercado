@@ -1690,6 +1690,26 @@ def avaliar_sugestao_vinculo(produto_coletado, referencia):
     }
 
 def sugestoes_vinculo(request):
+    busca = request.GET.get("busca", "").strip()
+    minimo_confianca = request.GET.get("minimo_confianca", "70")
+    limite_produtos = request.GET.get("limite", "50")
+
+    try:
+        minimo_confianca_num = float(minimo_confianca)
+    except Exception:
+        minimo_confianca_num = 85
+
+    try:
+        limite_produtos_num = int(limite_produtos)
+    except Exception:
+        limite_produtos_num = 50
+
+    if limite_produtos_num <= 0:
+        limite_produtos_num = 50
+
+    if limite_produtos_num > 200:
+        limite_produtos_num = 200
+
     produtos = ProdutoColetado.objects.select_related(
         "site",
         "marca",
@@ -1702,17 +1722,6 @@ def sugestoes_vinculo(request):
         | Q(status_vinculo="SEM_REFERENCIA")
     )
 
-    referencias = ProdutoReferencia.objects.select_related(
-        "marca",
-        "categoria",
-        "fabricante_importador",
-    ).filter(
-        ativo=True
-    )
-
-    busca = request.GET.get("busca", "")
-    minimo_confianca = request.GET.get("minimo_confianca", "70")
-
     if busca:
         produtos = produtos.filter(
             Q(nome_original__icontains=busca)
@@ -1723,20 +1732,38 @@ def sugestoes_vinculo(request):
             | Q(marca__nome__icontains=busca)
         )
 
-    try:
-        minimo_confianca_num = float(minimo_confianca)
-    except Exception:
-        minimo_confianca_num = 70
+    produtos = produtos.order_by("-id")[:limite_produtos_num]
+
+    referencias = ProdutoReferencia.objects.select_related(
+        "marca",
+        "categoria",
+        "fabricante_importador",
+    ).filter(
+        ativo=True
+    )
+
+    # Materializa uma vez para evitar reconsultar o banco a cada produto.
+    referencias = list(referencias)
 
     sugestoes = []
 
-    for produto in produtos.order_by("site__nome", "marca__nome", "nome_original"):
+    for produto in produtos:
         sugestao = gerar_sugestao_para_produto(produto, referencias)
 
         if not sugestao:
             continue
 
         if sugestao.get("bloqueado"):
+            continue
+
+        # Proteção contra sugestão incompleta.
+        if not sugestao.get("produto") or not sugestao.get("referencia"):
+            continue
+
+        if not getattr(sugestao.get("produto"), "id", None):
+            continue
+
+        if not getattr(sugestao.get("referencia"), "id", None):
             continue
 
         confianca = sugestao.get("confianca")
@@ -1773,6 +1800,7 @@ def sugestoes_vinculo(request):
         "total_sugestoes": len(sugestoes),
         "busca": busca,
         "minimo_confianca": minimo_confianca,
+        "limite_produtos": limite_produtos_num,
     }
 
     return render(request, "mercado/sugestoes_vinculo.html", contexto)

@@ -194,6 +194,11 @@
                 <input type="number" name="minimo_confianca" value="{{ minimo_confianca }}" min="0" max="100" step="1">
             </div>
 
+            <div class="campo">
+                <label>Limite de produtos analisados</label>
+                <input type="number" name="limite" value="{{ limite_produtos }}" min="10" max="200" step="10">
+            </div>
+
             <button type="submit">Filtrar</button>
         </form>
     </div>
@@ -243,13 +248,19 @@
                     <td>{{ sugestao.referencia.ean|default:"-" }}</td>
 
                     <td>
-                        <form method="post" action="{% url 'mercado:aplicar_sugestao_vinculo' produto.id sugestao.referencia.id %}">
-                            {% csrf_token %}
-                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                            <button type="submit" class="btn btn-success btn-sm">
-                                Aplicar vínculo
-                            </button>
-                        </form>
+                        {% if sugestao.produto.id and sugestao.referencia.id %}
+                            <form method="post" action="{% url 'mercado:aplicar_sugestao_vinculo' sugestao.produto.id sugestao.referencia.id %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    Aplicar vínculo
+                                </button>       
+                            </form>
+                        {% else %}
+                            <span style="color: #999;">
+                                Vínculo indisponível
+                            </span>
+                        {% endif %}
                     </td>
                 </tr>
             {% empty %}

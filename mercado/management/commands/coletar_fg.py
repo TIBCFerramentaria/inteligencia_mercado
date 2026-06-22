@@ -159,7 +159,6 @@ class Command(BaseCommand):
                 "codigo_site": codigo_site,
                 "codigo_fabricante": item.get("codigo_fabricante") or "",
                 "ean": item.get("ean") or "",
-                "status_vinculo": "PENDENTE",
                 "ativo": True,
             }
 
