@@ -1,6 +1,7 @@
 import json
 import time
 import os
+import shutil
 import re
 import ssl
 from html import unescape
@@ -22,11 +23,26 @@ def criar_driver_loja_mecanico():
     print("[INFO] Inicializando navegador da Loja do Mecânico...")
 
     options = uc.ChromeOptions()
+
+    caminho_chromium = (
+        shutil.which("chromium-browser")
+        or shutil.which("chromium")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+    )
+
+    if caminho_chromium:
+        options.binary_location = caminho_chromium
+
     options.add_argument("--start-maximized")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1366,768")
 
     # Importante: não criar driver global.
     # O navegador deve nascer e morrer dentro da execução da coleta.
-    return uc.Chrome(options=options, version_main=149)
+    return uc.Chrome(options=options, version_main=126)
 
 URL_MAIS_VENDIDOS = "https://www.lojadomecanico.com.br/hotsite/maisvendidos"
 
@@ -347,6 +363,142 @@ def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=2):
 
     return produto
 
+
+
+def extrair_json_server_state_loja_mecanico(html):
+    marcador = "window.__SERVER_STATE__"
+
+    pos = html.find(marcador)
+    if pos == -1:
+        return None
+
+    pos_igual = html.find("=", pos)
+    if pos_igual == -1:
+        return None
+
+    inicio = html.find("{", pos_igual)
+    if inicio == -1:
+        return None
+
+    nivel = 0
+    em_string = False
+    escape = False
+
+    for i in range(inicio, len(html)):
+        caractere = html[i]
+
+        if em_string:
+            if escape:
+                escape = False
+            elif caractere == "\\":
+                escape = True
+            elif caractere == '"':
+                em_string = False
+            continue
+
+        if caractere == '"':
+            em_string = True
+        elif caractere == "{":
+            nivel += 1
+        elif caractere == "}":
+            nivel -= 1
+
+            if nivel == 0:
+                bruto = html[inicio:i + 1]
+                return json.loads(bruto)
+
+    return None
+
+
+def encontrar_hits_server_state_loja_mecanico(objeto):
+    hits = []
+
+    if isinstance(objeto, dict):
+        for chave, valor in objeto.items():
+            if chave == "hits" and isinstance(valor, list):
+                for item in valor:
+                    if isinstance(item, dict) and (item.get("productId") or item.get("objectID")):
+                        hits.append(item)
+
+            hits.extend(encontrar_hits_server_state_loja_mecanico(valor))
+
+    elif isinstance(objeto, list):
+        for item in objeto:
+            hits.extend(encontrar_hits_server_state_loja_mecanico(item))
+
+    return hits
+
+
+def extrair_produtos_server_state_loja_mecanico(html, limite=20, inicio_ranking=1):
+    try:
+        estado = extrair_json_server_state_loja_mecanico(html)
+    except Exception as erro:
+        print(f"[AVISO] Falha ao ler window.__SERVER_STATE__: {erro}")
+        return []
+
+    if not estado:
+        return []
+
+    hits = encontrar_hits_server_state_loja_mecanico(estado)
+
+    produtos = []
+    urls_vistas = set()
+
+    for hit in hits:
+        if len(produtos) >= limite:
+            break
+
+        url_produto = hit.get("url") or ""
+        if not url_produto:
+            continue
+
+        if url_produto in urls_vistas:
+            continue
+
+        urls_vistas.add(url_produto)
+
+        preco = hit.get("price") or {}
+        marca = hit.get("brand") or {}
+        ranking_data = hit.get("rankingData") or {}
+
+        nome = normalizar_texto(hit.get("title") or hit.get("name") or "")
+        marca_nome = normalizar_texto(marca.get("name") or hit.get("brandName") or "")
+
+        ranking = inicio_ranking + len(produtos)
+
+        estoque_lista = hit.get("stockEstablishmentsAvailable") or []
+        disponivel = bool(hit.get("available", True))
+
+        produto = {
+            "ranking_geral": ranking,
+            "ranking_categoria": ranking,
+            "url": url_produto,
+            "url_produto": url_produto,
+            "codigo_site": str(hit.get("productId") or hit.get("objectID") or ""),
+            "codigo_fabricante": str(hit.get("erpId") or hit.get("reference") or ""),
+            "ean": normalizar_ean(hit.get("ean")),
+            "nome": nome,
+            "nome_original": nome,
+            "marca": marca_nome,
+            "marca_nome": marca_nome,
+            "preco_atual": converter_para_decimal(preco.get("cash")),
+            "preco_antigo": converter_para_decimal(preco.get("full")),
+            "preco_prazo": converter_para_decimal(preco.get("term")),
+            "quantidade_parcelas": preco.get("installmentPaymentQuantity"),
+            "valor_parcela": converter_para_decimal(preco.get("installmentPaymentValue")),
+            "desconto_percentual": converter_para_decimal(preco.get("promotionalDiscountPercentage")),
+            "nota_media": ranking_data.get("reviewsBayesianAvg") or hit.get("averageRating"),
+            "quantidade_avaliacoes": ranking_data.get("reviewsCount") or hit.get("reviewsCount"),
+            "disponivel": disponivel,
+            "texto_disponibilidade": "Disponível" if disponivel else "Indisponível",
+            "estoque": len(estoque_lista) if isinstance(estoque_lista, list) else None,
+        }
+
+        produtos.append(produto)
+
+    return produtos
+
+
 def coletar_mais_vendidos(limite=500, max_paginas=10, alvo=None, url_base=None, **kwargs):
     """
     Coleta produtos da Loja do Mecânico a partir da listagem.
@@ -413,11 +565,34 @@ def coletar_mais_vendidos(limite=500, max_paginas=10, alvo=None, url_base=None, 
 
             if not grid_principal:
                 print(f"[AVISO] Grid principal de produtos não encontrado na página {pagina}.")
-                salvar_debug_texto("debug_loja_mecanico_sem_grid.html", html_listagem)
-                break
+                print("[INFO] Tentando fallback completo pelo window.__SERVER_STATE__ da página.")
 
-            tags_produtos = grid_principal.find_all("a", class_="tagManagerProductClick", href=True)
-            print(f"[INFO] Encontradas {len(tags_produtos)} tags de links no grid principal.")
+                produtos_json = extrair_produtos_server_state_loja_mecanico(
+                    html_listagem,
+                    limite=limite - len(produtos_coletados),
+                    inicio_ranking=len(produtos_coletados) + 1,
+                )
+
+                if produtos_json:
+                    produtos_coletados.extend(produtos_json)
+                    print(f"[INFO] Produtos extraídos pelo fallback JSON: {len(produtos_json)}")
+                    break
+
+                print("[INFO] Fallback JSON não encontrou produtos. Tentando links com data-product.")
+
+                tags_produtos = soup.find_all("a", class_="tagManagerProductClick", href=True)
+
+                if not tags_produtos:
+                    tags_produtos = soup.select("a[href*='/produto/'][data-product]")
+
+                print(f"[INFO] Fallback encontrou {len(tags_produtos)} tags de produtos na página inteira.")
+
+                if not tags_produtos:
+                    salvar_debug_texto("debug_loja_mecanico_sem_grid.html", html_listagem)
+                    break
+            else:
+                tags_produtos = grid_principal.find_all("a", class_="tagManagerProductClick", href=True)
+                print(f"[INFO] Encontradas {len(tags_produtos)} tags de links no grid principal.")
 
             if not tags_produtos:
                 print("[AVISO] Nenhum produto encontrado nesta página.")

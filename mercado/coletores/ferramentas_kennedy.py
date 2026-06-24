@@ -1,4 +1,5 @@
 import os
+import shutil
 import ssl
 import json
 import re
@@ -38,6 +39,21 @@ def criar_driver_ferramentas_kennedy(headless=False):
 
     options = uc.ChromeOptions()
 
+    caminho_chromium = (
+        shutil.which("chromium-browser")
+        or shutil.which("chromium")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+    )
+
+    if caminho_chromium:
+        options.binary_location = caminho_chromium
+
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1366,768")
+
     if headless:
         options.add_argument("--headless=new")
 
@@ -62,7 +78,7 @@ def criar_driver_ferramentas_kennedy(headless=False):
     try:
         driver = uc.Chrome(
             options=options,
-            version_main=149,
+            version_main=126,
             use_subprocess=False,
         )
     except Exception as erro:

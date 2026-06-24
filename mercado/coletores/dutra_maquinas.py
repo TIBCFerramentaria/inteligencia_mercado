@@ -1,6 +1,8 @@
 import time
 import re
 import os
+import shutil
+import tempfile
 from decimal import Decimal
 from urllib.parse import urljoin, urldefrag, urlsplit, urlunsplit, parse_qsl, urlencode
 
@@ -711,11 +713,50 @@ def coletar_produtos_dutra(
     
     # --- CONFIGURAÇÃO DO SELENIUM E EXTENSÃO HCAPTCHA SOLVER ---
     options = Options()
+
+    caminho_chromium = (
+        shutil.which("chromium-browser")
+        or shutil.which("chromium")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+    )
+
+    if caminho_chromium:
+        options.binary_location = caminho_chromium
+
+    perfil_temporario = tempfile.mkdtemp(prefix="dutra_chrome_profile_")
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--remote-debugging-port=0")
+    options.add_argument(f"--user-data-dir={perfil_temporario}")
+    options.add_argument("--window-size=1366,768")
+
+    caminho_chromium = (
+        shutil.which("chromium-browser")
+        or shutil.which("chromium")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+    )
+
+    if caminho_chromium:
+        options.binary_location = caminho_chromium
+
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1366,768")
     options.add_argument("start-maximized")
 
     # Aponta para a pasta onde está a extensão extraída do GitHub
     caminho_extensao = os.path.abspath("./hektcaptcha")
-    options.add_argument(f"--load-extension={caminho_extensao}")
+    if os.path.isdir(caminho_extensao):
+        options.add_argument(f"--load-extension={caminho_extensao}")
+    else:
+        print(f"[AVISO] Extensão local não encontrada: {caminho_extensao}. Continuando sem extensão.")
 
     # Remove os alertas visuais e travas de automação do Chrome
     options.add_experimental_option("excludeSwitches", ["enable-automation"])

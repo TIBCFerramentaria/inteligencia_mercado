@@ -1,6 +1,7 @@
 import traceback
 
 from django.core.management import call_command
+from django.db import close_old_connections, connections
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -99,6 +100,8 @@ class Command(BaseCommand):
                     alvo.ultima_execucao = timezone.now()
                     alvo.ultima_situacao = AlvoColeta.SituacaoUltimaExecucao.ERRO
                     alvo.ultima_mensagem = mensagem
+                    connections.close_all()
+                    close_old_connections()
                     alvo.save(
                         update_fields=[
                             "ultima_execucao",
@@ -142,6 +145,8 @@ class Command(BaseCommand):
                     alvo.ultima_execucao = timezone.now()
                     alvo.ultima_situacao = AlvoColeta.SituacaoUltimaExecucao.SUCESSO
                     alvo.ultima_mensagem = mensagem
+                    connections.close_all()
+                    close_old_connections()
                     alvo.save(
                         update_fields=[
                             "ultima_execucao",
@@ -164,6 +169,8 @@ class Command(BaseCommand):
                     alvo.ultima_execucao = timezone.now()
                     alvo.ultima_situacao = AlvoColeta.SituacaoUltimaExecucao.ERRO
                     alvo.ultima_mensagem = detalhe
+                    connections.close_all()
+                    close_old_connections()
                     alvo.save(
                         update_fields=[
                             "ultima_execucao",
