@@ -18,19 +18,15 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# --- CONFIGURAÇÃO GLOBAL DO NAVEGADOR INDETECTÁVEL ---
-print("[INFO] Inicializando o navegador indetectável...")
-options = uc.ChromeOptions()
-options.add_argument("--start-maximized")
+def criar_driver_loja_mecanico():
+    print("[INFO] Inicializando navegador da Loja do Mecânico...")
 
-# Aponta para a pasta onde está a extensão extraída do GitHub
-caminho_extensao = os.path.abspath("./hektcaptcha") 
-options.add_argument(f"--load-extension={caminho_extensao}")
+    options = uc.ChromeOptions()
+    options.add_argument("--start-maximized")
 
-# Instancia o driver usando o método nativo do undetected_chromedriver
-# (Nota: Não usamos selenium-stealth ou excludeSwitches aqui pois eles quebram o UC)
-driver = uc.Chrome(options=options, version_main=149)
-
+    # Importante: não criar driver global.
+    # O navegador deve nascer e morrer dentro da execução da coleta.
+    return uc.Chrome(options=options, version_main=149)
 
 URL_MAIS_VENDIDOS = "https://www.lojadomecanico.com.br/hotsite/maisvendidos"
 
@@ -353,117 +349,180 @@ def enriquecer_produto_loja_com_detalhe(driver, produto, pausa=2):
 
 def coletar_mais_vendidos(limite=500, max_paginas=10, alvo=None, url_base=None, **kwargs):
     """
-    Ponto de entrada do Django. Captura apenas os produtos do grid principal
-    e faz o parse seguro dos dados contidos no atributo data-product.
+    Coleta produtos da Loja do Mecânico a partir da listagem.
+    Mantém o navegador dentro da execução e evita URLs duplicadas na coleta inteira.
     """
     url_inicial = url_base or URL_MAIS_VENDIDOS
-    
+
     print("[INFO] Iniciando rotina de coleta com seletor de grid restrito.")
     print(f"[INFO] URL Inicial: {url_inicial}")
-    
+
     produtos_coletados = []
-    
+    urls_vistas_na_coleta = set()
+
+    driver = None
+
     try:
-        driver.get(url_inicial)
-        time.sleep(4)  # Tempo para o JavaScript renderizar o grid principal
-        
+        driver = criar_driver_loja_mecanico()
+
         for pagina in range(1, max_paginas + 1):
-            print(f"[INFO] Processando página de listagem {pagina}...")
-            
-            html_listagem = driver.page_source
-            soup = BeautifulSoup(html_listagem, "html.parser")
-            
-            # 1. Localiza EXCLUSIVAMENTE o container da listagem real que você identificou
-            grid_principal = soup.find("div", class_="container-categorias")
-            
-            if not grid_principal:
-                # Fallback caso a classe mude ligeiramente no futuro, tenta pela classe filha do grid
-                grid_principal = soup.find("div", class_="container__grid")
-                
-            if not grid_principal:
-                print(f"[AVISO] Grid principal de produtos não encontrado na página {pagina}. Pulando ou fim de paginação.")
+            if pagina == 1:
+                url_pagina = url_inicial
+            else:
+                partes_url = urlsplit(url_inicial)
+                query_params = dict(parse_qsl(partes_url.query))
+                query_params["p"] = str(pagina)
+                nova_query = urlencode(query_params)
+
+                url_pagina = urlunsplit((
+                    partes_url.scheme,
+                    partes_url.netloc,
+                    partes_url.path,
+                    nova_query,
+                    partes_url.fragment,
+                ))
+
+            print("=" * 80)
+            print(f"[INFO] Processando página de listagem {pagina}: {url_pagina}")
+
+            try:
+                driver.get(url_pagina)
+                time.sleep(4)
+            except Exception as erro:
+                print(f"[ERRO] Não consegui abrir a página {pagina}: {erro}")
                 break
 
-            # 2. Busca os links apenas dentro deste container específico
+            try:
+                html_listagem = driver.page_source
+            except Exception as erro:
+                print(f"[ERRO] Não consegui ler o HTML da página {pagina}: {erro}")
+                break
+
+            html_minusculo = html_listagem.lower()
+
+            if "hcaptcha" in html_minusculo or "captcha" in html_minusculo:
+                print("[AVISO] CAPTCHA detectado na listagem. Coleta da Loja do Mecânico interrompida.")
+                salvar_debug_texto("debug_loja_mecanico_captcha_listagem.html", html_listagem)
+                break
+
+            soup = BeautifulSoup(html_listagem, "html.parser")
+
+            grid_principal = soup.find("div", class_="container-categorias")
+            if not grid_principal:
+                grid_principal = soup.find("div", class_="container__grid")
+
+            if not grid_principal:
+                print(f"[AVISO] Grid principal de produtos não encontrado na página {pagina}.")
+                salvar_debug_texto("debug_loja_mecanico_sem_grid.html", html_listagem)
+                break
+
             tags_produtos = grid_principal.find_all("a", class_="tagManagerProductClick", href=True)
-            print(f"[INFO] Encontrados {len(tags_produtos)} produtos legítimos no grid principal.")
+            print(f"[INFO] Encontradas {len(tags_produtos)} tags de links no grid principal.")
+
+            if not tags_produtos:
+                print("[AVISO] Nenhum produto encontrado nesta página.")
+                break
+
+            produtos_adicionados_na_pagina = 0
 
             for tag_a in tags_produtos:
+                url_produto = urljoin(url_inicial, tag_a["href"])
+                url_chave = limpar_url(url_produto).rstrip("/").lower()
+
+                if url_chave in urls_vistas_na_coleta:
+                    print(f"[INFO] Produto duplicado ignorado: {url_produto}")
+                    continue
+
+                urls_vistas_na_coleta.add(url_chave)
+
                 if len(produtos_coletados) >= limite:
                     print(f"[INFO] Limite de {limite} produtos atingido.")
                     break
-                
-                url_produto = urljoin(url_inicial, tag_a["href"])
-                
-                # Inicializa o dicionário base
+
                 produto_dados = {
-                    "url": url_produto,
-                    "url_produto": url_produto
+                    "url": url_chave,
+                    "url_produto": url_chave,
+                    "ranking_geral": len(produtos_coletados) + 1,
+                    "ranking_categoria": len(produtos_coletados) + 1,
+                    "disponivel": True,
                 }
-                
-                # 3. EXTRAÇÃO ULTRA-RÁPIDA (Bônus): Captura o JSON interno se disponível
+
                 data_product_attr = tag_a.get("data-product")
+
                 if data_product_attr:
                     try:
-                        # Faz o unescape e carrega o dicionário limpo vindo do site
                         info_json = json.loads(unescape(data_product_attr))
-                        
-                        # Mapeia os dados do JSON da listagem diretamente para o formato do seu banco
+
                         if info_json.get("codigo"):
                             produto_dados["codigo_fabricante"] = normalizar_texto(info_json.get("codigo"))
+                            produto_dados["codigo_site"] = normalizar_texto(info_json.get("codigo"))
+
                         if info_json.get("produto"):
                             produto_dados["nome"] = normalizar_texto(info_json.get("produto"))
                             produto_dados["nome_original"] = produto_dados["nome"]
+
                         if info_json.get("nameManufacturer"):
                             produto_dados["marca"] = normalizar_texto(info_json.get("nameManufacturer"))
                             produto_dados["marca_nome"] = produto_dados["marca"]
+
                         if info_json.get("billetPrice"):
                             produto_dados["preco_atual"] = converter_para_decimal(info_json.get("billetPrice"))
+
                         if info_json.get("precode"):
                             produto_dados["preco_antigo"] = converter_para_decimal(info_json.get("precode"))
+
                         if info_json.get("preco"):
                             produto_dados["preco_prazo"] = converter_para_decimal(info_json.get("preco"))
+
                         if info_json.get("quantidadeParcela"):
                             produto_dados["quantidade_parcelas"] = info_json.get("quantidadeParcela")
+
                         if info_json.get("installmentPaymentValue"):
                             produto_dados["valor_parcela"] = converter_para_decimal(info_json.get("installmentPaymentValue"))
+
                         if info_json.get("avaliacao"):
-                            produto_dados["nota"] = info_json.get("avaliacao")
+                            produto_dados["nota_media"] = info_json.get("avaliacao")
+
                         if info_json.get("avaliacaoQtde"):
-                            produto_dados["avaliacoes"] = info_json.get("avaliacaoQtde")
+                            produto_dados["quantidade_avaliacoes"] = info_json.get("avaliacaoQtde")
+
                         if info_json.get("estoque"):
-                            produto_dados["estoque"] = int(info_json.get("estoque"))
-                            
+                            try:
+                                produto_dados["estoque"] = int(info_json.get("estoque"))
+                            except Exception:
+                                produto_dados["estoque"] = None
+
                     except Exception as err_json:
                         print(f"[AVISO] Falha ao ler data-product nativo: {err_json}")
 
-                # 4. CHAMA O ENRIQUECIMENTO (Acessa a página interna para buscar o EAN via hCaptcha)
-                # Passamos o dicionário que já possui os preços populados da listagem
-                produto_enriquecido = enriquecer_produto_loja_com_detalhe(driver, produto_dados)
-                
-                # Salva o produto apenas se a extração (EAN ou dados) for bem sucedida
-                if produto_enriquecido:
-                    produtos_coletados.append(produto_enriquecido)
-            
+                if not produto_dados.get("nome_original"):
+                    texto_link = normalizar_texto(tag_a.get_text(" ", strip=True))
+                    if texto_link:
+                        produto_dados["nome_original"] = texto_link
+                        produto_dados["nome"] = texto_link
+
+                produtos_coletados.append(produto_dados)
+                produtos_adicionados_na_pagina += 1
+
+            print(f"[INFO] Produtos adicionados na página {pagina}: {produtos_adicionados_na_pagina}")
+
             if len(produtos_coletados) >= limite:
                 break
-                
-            # LÓGICA DE PAGINAÇÃO AVANÇADA
-            partes_url = urlsplit(url_inicial)
-            query_params = dict(parse_qsl(partes_url.query))
-            query_params['p'] = str(pagina + 1)
-            nova_query = urlencode(query_params)
-            
-            proxima_url = urlunsplit((
-                partes_url.scheme, partes_url.netloc, partes_url.path, nova_query, partes_url.fragment
-            ))
-                
-            print(f"[INFO] Avançando para a página: {proxima_url}")
-            driver.get(proxima_url)
-            time.sleep(4)
-            
+
+            if produtos_adicionados_na_pagina == 0:
+                print("[AVISO] Página não adicionou produtos novos. Encerrando para evitar loop.")
+                break
+
     except Exception as e:
         print(f"[ERRO] Falha crítica no loop principal da coleta: {e}")
-        
+
+    finally:
+        if driver:
+            try:
+                print("[INFO] Fechando navegador da Loja do Mecânico...")
+                driver.quit()
+            except Exception:
+                pass
+
     print(f"[SUCESSO] Rotina finalizada. Total de produtos coletados: {len(produtos_coletados)}")
     return produtos_coletados

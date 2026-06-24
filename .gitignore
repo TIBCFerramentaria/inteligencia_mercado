@@ -41,3 +41,4 @@ teste_uc_kennedy.py
 EOF
 # Debug JSON dos coletores
 debug_*.json
+*.bak_*

@@ -262,10 +262,7 @@ def enriquecer_produto_com_detalhe_palacio(session, produto):
             if not produto.get("codigo_site"):
                 produto["codigo_site"] = codigo_fabricante
 
-            print(
-                f"[DEBUG] Referência encontrada no detalhe: "
-                f"{codigo_fabricante} - {produto.get('nome')}"
-            )
+            pass  # DEBUG DESATIVADO
         else:
             print(
                 f"[WARN] Referência não encontrada no detalhe: "
@@ -274,20 +271,14 @@ def enriquecer_produto_com_detalhe_palacio(session, produto):
 
         if ean:
             produto["ean"] = ean
-            print(
-                f"[DEBUG] EAN encontrado no detalhe: "
-                f"{ean} - {produto.get('nome')}"
-            )
+            pass  # DEBUG DESATIVADO
 
         produto["estoque"] = estoque
         produto["disponivel"] = disponivel
         produto["texto_disponibilidade"] = texto_disponibilidade
 
         if texto_disponibilidade:
-            print(
-                f"[DEBUG] Disponibilidade encontrada no detalhe: "
-                f"{texto_disponibilidade} - {produto.get('nome')}"
-            )
+            pass  # DEBUG DESATIVADO
 
     except Exception as erro:
         print(f"[WARN] Erro ao enriquecer detalhe Palácio: {erro}")
@@ -423,7 +414,7 @@ def extrair_produtos_html_palacio(html, url_base, limite=None):
 
     cards = encontrar_cards_produtos_palacio(soup)
 
-    print(f"[DEBUG] Cards Palácio encontrados: {len(cards)}")
+    pass  # DEBUG DESATIVADO
 
     produtos = []
     urls_vistas = set()
@@ -575,7 +566,7 @@ def coletar_produtos_palacio_ferramentas(
             print(f"[ERRO] Falha ao acessar página: {erro}")
             break
 
-        print(f"[DEBUG] Status HTTP: {resposta.status_code}")
+        pass  # DEBUG DESATIVADO
 
         if resposta.status_code != 200:
             print(f"[WARN] Página retornou status {resposta.status_code}. Encerrando.")

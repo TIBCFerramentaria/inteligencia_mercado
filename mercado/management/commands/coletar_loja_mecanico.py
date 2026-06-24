@@ -147,7 +147,7 @@ class Command(BaseCommand):
                 return
 
             categoria, _criado_categoria = Categoria.objects.get_or_create(
-                nome="Mais vendidos - Loja do Mecânico"
+                nome=nome_fonte or "Mais vendidos - Loja do Mecânico"
             )
 
             for item in produtos:
