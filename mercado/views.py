@@ -167,6 +167,7 @@ def montar_texto_parcelamento(coleta):
     return "-"
 
 def ranking_mercado(request):
+    from mercado.models import ColetaProduto
     produtos = ProdutoColetado.objects.select_related(
         "site",
         "marca",
@@ -202,8 +203,25 @@ def ranking_mercado(request):
 
     ranking = []
 
+
+    # SQL Server/ODBC: materializa produtos e carrega as últimas coletas antes do loop.
+    # Evita erro: Connection is busy with results for another command.
+    produtos = list(produtos)
+    produto_ids = [produto.id for produto in produtos]
+
+    ultimas_coletas_por_produto = {}
+
+    if produto_ids:
+        coletas = ColetaProduto.objects.filter(
+            produto_id__in=produto_ids
+        ).order_by("produto_id", "-data_coleta")
+
+        for coleta in coletas:
+            if coleta.produto_id not in ultimas_coletas_por_produto:
+                ultimas_coletas_por_produto[coleta.produto_id] = coleta
+
     for produto in produtos:
-        ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+        ultima_coleta = ultimas_coletas_por_produto.get(produto.id)
 
         if not ultima_coleta:
             continue
@@ -287,32 +305,92 @@ def obter_nome_referencia(referencia, produtos_vinculados=None):
     return "Produto referência sem nome"
 
 def precos_referencias(request):
-    busca = request.GET.get("busca", "")
+    from decimal import Decimal
+    from django.db.models import Q
+    from mercado.models import (
+        ProdutoReferencia,
+        ProdutoColetado,
+        ColetaProduto,
+        Marca,
+        FabricanteImportador,
+        Categoria,
+    )
 
-    referencias = ProdutoReferencia.objects.all()
+    busca = request.GET.get("busca", "")
+    marca_id = request.GET.get("marca", "")
+    fabricante_id = request.GET.get("fabricante", "")
+    categoria_id = request.GET.get("categoria", "")
+
+    referencias_qs = ProdutoReferencia.objects.select_related(
+        "marca",
+        "fabricante_importador",
+        "categoria",
+    ).all()
 
     if busca:
-        referencias = referencias.filter(
-          Q(nome_referencia__icontains=busca)
-          | Q(codigo_fabricante__icontains=busca)
-          | Q(codigo_site__icontains=busca)
-          | Q(ean__icontains=busca)
-          | Q(marca__nome__icontains=busca)
-          | Q(marca_nome__icontains=busca)
+        referencias_qs = referencias_qs.filter(
+            Q(nome_referencia__icontains=busca)
+            | Q(codigo_fabricante__icontains=busca)
+            | Q(ean__icontains=busca)
+            | Q(marca__nome__icontains=busca)
+            | Q(fabricante_importador__nome__icontains=busca)
+            | Q(categoria__nome__icontains=busca)
         )
+
+    if marca_id:
+        referencias_qs = referencias_qs.filter(marca_id=marca_id)
+
+    if fabricante_id:
+        referencias_qs = referencias_qs.filter(fabricante_importador_id=fabricante_id)
+
+    if categoria_id:
+        referencias_qs = referencias_qs.filter(categoria_id=categoria_id)
+
+    # SQL Server/ODBC: materializa as referências antes de fazer novas consultas.
+    referencias = list(referencias_qs)
+    referencia_ids = [referencia.id for referencia in referencias]
+
+    produtos_por_referencia = {}
+    ultimas_coletas_por_produto = {}
+
+    if referencia_ids:
+        produtos = list(
+            ProdutoColetado.objects.select_related(
+                "site",
+                "marca",
+                "produto_referencia",
+            ).filter(
+                produto_referencia_id__in=referencia_ids,
+                ativo=True,
+            )
+        )
+
+        for produto in produtos:
+            produtos_por_referencia.setdefault(
+                produto.produto_referencia_id,
+                []
+            ).append(produto)
+
+        produto_ids = [produto.id for produto in produtos]
+
+        if produto_ids:
+            coletas = ColetaProduto.objects.filter(
+                produto_id__in=produto_ids
+            ).order_by("produto_id", "-data_coleta")
+
+            for coleta in coletas:
+                if coleta.produto_id not in ultimas_coletas_por_produto:
+                    ultimas_coletas_por_produto[coleta.produto_id] = coleta
 
     linhas = []
 
     for referencia in referencias:
-        produtos_vinculados = ProdutoColetado.objects.filter(
-            produto_referencia=referencia,
-            ativo=True,
-        )
+        produtos_vinculados = produtos_por_referencia.get(referencia.id, [])
 
         coletas = []
 
         for produto in produtos_vinculados:
-            ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+            ultima_coleta = ultimas_coletas_por_produto.get(produto.id)
 
             if ultima_coleta:
                 coletas.append(ultima_coleta)
@@ -349,21 +427,23 @@ def precos_referencias(request):
                 preco_medio_prazo,
             )
 
-        ultima_data_coleta = max(
+        datas_coleta = [
             coleta.data_coleta
             for coleta in coletas
             if coleta.data_coleta
-        )
+        ]
 
-        nome_referencia = obter_nome_referencia(
-            referencia,
-            produtos_vinculados,
-        )
+        ultima_data_coleta = max(datas_coleta) if datas_coleta else None
+
+        nome_referencia = referencia.nome_referencia
+
+        if not nome_referencia and produtos_vinculados:
+            nome_referencia = produtos_vinculados[0].nome_original
 
         linhas.append({
             "referencia": referencia,
             "nome_referencia": nome_referencia,
-            "qtd_produtos_vinculados": produtos_vinculados.count(),
+            "qtd_produtos_vinculados": len(produtos_vinculados),
             "qtd_coletas": len(coletas),
             "menor_preco_vista": menor_preco_vista,
             "maior_preco_vista": maior_preco_vista,
@@ -377,13 +457,23 @@ def precos_referencias(request):
         key=lambda item: item["preco_medio_vista"] if item["preco_medio_vista"] is not None else Decimal("999999999")
     )
 
+    query_string = request.GET.urlencode()
+
     contexto = {
         "linhas": linhas,
         "total_referencias": len(linhas),
         "busca": busca,
+        "marca_id": marca_id,
+        "fabricante_id": fabricante_id,
+        "categoria_id": categoria_id,
+        "marcas": Marca.objects.all().order_by("nome"),
+        "fabricantes": FabricanteImportador.objects.all().order_by("nome"),
+        "categorias": Categoria.objects.all().order_by("nome"),
+        "query_string": query_string,
     }
 
     return render(request, "mercado/precos_referencias.html", contexto)
+
 
 def exportar_precos_referencias_excel(request):
     busca = request.GET.get("busca", "")
@@ -1951,6 +2041,7 @@ def aplicar_sugestoes_alta_confianca(request):
     return redirect("mercado:sugestoes_vinculo")
 
 def forca_marcas(request):
+    from mercado.models import ColetaProduto
     produtos = ProdutoColetado.objects.select_related(
         "site",
         "marca",
@@ -1978,13 +2069,33 @@ def forca_marcas(request):
     if categoria_id:
         produtos = produtos.filter(categoria_id=categoria_id)
 
+    # SQL Server/ODBC: materializa a QuerySet antes de buscar coletas dentro do loop.
+    # Evita erro: Connection is busy with results for another command.
+    produtos = list(produtos)
+
+    # SQL Server/ODBC: carrega os produtos e as coletas antes do loop.
+    # Evita erro: Connection is busy with results for another command.
+    produtos = list(produtos)
+    produto_ids = [produto.id for produto in produtos]
+
+    ultimas_coletas_por_produto = {}
+
+    if produto_ids:
+        coletas = ColetaProduto.objects.filter(
+            produto_id__in=produto_ids
+        ).order_by("produto_id", "-data_coleta")
+
+        for coleta in coletas:
+            if coleta.produto_id not in ultimas_coletas_por_produto:
+                ultimas_coletas_por_produto[coleta.produto_id] = coleta
+
     marcas = {}
 
     for produto in produtos:
         if not produto.marca:
             continue
 
-        ultima_coleta = produto.coletas.order_by("-data_coleta").first()
+        ultima_coleta = ultimas_coletas_por_produto.get(produto.id)
 
         if not ultima_coleta:
             continue
